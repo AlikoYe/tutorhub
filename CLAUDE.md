@@ -16,6 +16,9 @@ backend/
   internal/
     auth/               initData validation, middleware (upserts user), RequireAdmin, /me, UserRepo
     subject/            the seeded subject taxonomy
+    geo/                cities/districts (Almaty) and fixed vocabularies (levels, formats, languages); /meta
+    visibility/         THE listing rule + ranking SQL (live AND running subscription); use it, never re-type it
+    specialist/         profiles: owner editor, submit, admin verification, photos, catalogue search
     bot/                Telegram: Sender interface, Notifier, Links, command/callback dispatch;
                         every user-facing text is in bot/texts*.go
     notify/             background worker: runs registered jobs every REMINDER_INTERVAL
@@ -65,6 +68,12 @@ A package without business rules (e.g. `subject`) may skip the service.
   Domain notifications go through `bot.Notifier` (background, detached context, 10 s
   timeout, failures logged at warn and never fail a request). Tests call `Notifier.Wait()`.
 - UI and bot texts are Russian for now (kk/en in M5).
+- Specialist status: draft -> pending (submit) -> live (admin approve, starts trial/founding plan) or
+  back to draft with rejection_reason; live <-> hidden by the teacher; blocked by admins.
+  Listed in search iff `visibility.ListedSQL`; the profile page opens while `status = live`
+  (link keeps working after the subscription ends); owner and admins always see it.
+- Photos live in `UPLOAD_DIR/photos`, served publicly at `/api/files/photos/{name}` (img tags send
+  no auth header); each upload gets a new random name, so files are cached forever.
 - Prices are configuration, not code.
 
 ## Workflow

@@ -1,4 +1,4 @@
-// App-wide state: the current user and the subject taxonomy.
+// App-wide state: the current user, the subject taxonomy and vocabularies.
 import { reactive } from 'vue'
 import { api } from '@/api/client'
 
@@ -7,6 +7,7 @@ export const store = reactive({
   meError: null,
   subjects: [],
   subjectsById: {},
+  meta: null,
 })
 
 export async function loadMe() {
@@ -25,4 +26,18 @@ export async function loadSubjects() {
   store.subjects = list
   store.subjectsById = Object.fromEntries(list.map((s) => [s.id, s]))
   return list
+}
+
+export async function loadMeta() {
+  if (!store.meta) store.meta = await api.get('/meta')
+  return store.meta
+}
+
+export function districtName(city, slug) {
+  const c = store.meta?.cities.find((x) => x.slug === city)
+  return c?.districts.find((d) => d.slug === slug)?.name_ru || ''
+}
+
+export function cityName(slug) {
+  return store.meta?.cities.find((x) => x.slug === slug)?.name_ru || slug
 }

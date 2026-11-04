@@ -66,3 +66,40 @@ func QueryID(r *http.Request, name string) (int64, error) {
 	}
 	return id, nil
 }
+
+// QueryOptionalInt parses an optional integer in [min, max]; nil when absent.
+func QueryOptionalInt(r *http.Request, name string, min, max int) (*int, error) {
+	if r.URL.Query().Get(name) == "" {
+		return nil, nil
+	}
+	n, err := QueryInt(r, name, min, max)
+	if err != nil {
+		return nil, err
+	}
+	return &n, nil
+}
+
+// QueryEnum returns an optional query parameter that must be one of allowed ("" when absent).
+func QueryEnum(r *http.Request, name string, allowed []string) (string, error) {
+	v := r.URL.Query().Get(name)
+	if v == "" {
+		return "", nil
+	}
+	for _, a := range allowed {
+		if v == a {
+			return v, nil
+		}
+	}
+	return "", fmt.Errorf("query parameter %q must be one of %v", name, allowed)
+}
+
+// QueryBool parses an optional true/false parameter (default false).
+func QueryBool(r *http.Request, name string) (bool, error) {
+	switch r.URL.Query().Get(name) {
+	case "", "false", "0":
+		return false, nil
+	case "true", "1":
+		return true, nil
+	}
+	return false, fmt.Errorf("query parameter %q must be true or false", name)
+}

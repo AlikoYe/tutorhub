@@ -12,9 +12,11 @@ import (
 
 	"github.com/AlikoYe/tutorhub/backend/internal/auth"
 	"github.com/AlikoYe/tutorhub/backend/internal/bot"
+	"github.com/AlikoYe/tutorhub/backend/internal/geo"
 	"github.com/AlikoYe/tutorhub/backend/internal/notify"
 	"github.com/AlikoYe/tutorhub/backend/internal/platform/config"
 	"github.com/AlikoYe/tutorhub/backend/internal/platform/httpx"
+	"github.com/AlikoYe/tutorhub/backend/internal/specialist"
 	"github.com/AlikoYe/tutorhub/backend/internal/subject"
 )
 
@@ -25,21 +27,36 @@ type app struct {
 	db       *pgxpool.Pool
 	notifier *bot.Notifier
 
-	subjects *subject.Repo
+	subjects    *subject.Repo
+	photos      specialist.PhotoStore
+	specialists *specialist.Service
 }
 
 func newApp(cfg config.Config, log *slog.Logger, db *pgxpool.Pool, notifier *bot.Notifier) *app {
-	return &app{
+	a := &app{
 		cfg:      cfg,
 		log:      log,
 		db:       db,
 		notifier: notifier,
 		subjects: subject.NewRepo(db),
+		photos:   specialist.NewPhotoStore(cfg.UploadDir),
 	}
+	links := bot.Links{WebAppURL: cfg.WebAppURL, BotUsername: cfg.BotUsername}
+	a.specialists = specialist.NewService(specialist.NewRepo(db), specialist.Options{
+		Photos:       a.photos,
+		Notifier:     notifier,
+		PersonalLink: links.SpecialistLink,
+		TrialDays:    cfg.TrialDays,
+		Location:     cfg.Timezone,
+		Log:          log,
+	})
+	return a
 }
 
 // registerBot adds the domain commands and callbacks to the bot.
-func (a *app) registerBot(_ *bot.Bot) {}
+func (a *app) registerBot(b *bot.Bot) {
+	b.RegisterSpecialists(a.specialists)
+}
 
 // worker returns the background worker with every domain job.
 func (a *app) worker() *notify.Worker {
@@ -56,6 +73,7 @@ func (a *app) router() http.Handler {
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", healthHandler(a.db))
+		r.Get("/files/photos/{name}", a.photos.Handler)
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.Middleware(auth.Options{
@@ -64,8 +82,18 @@ func (a *app) router() http.Handler {
 				Users:    auth.NewUserRepo(a.db),
 				Logger:   a.log,
 			}))
-			r.Get("/me", auth.MeHandler(nil, a.log))
+			r.Get("/me", auth.MeHandler(a.specialists, a.log))
 			r.Get("/subjects", subject.ListHandler(a.subjects, a.log))
+			r.Get("/meta", func(w http.ResponseWriter, _ *http.Request) { httpx.JSON(w, http.StatusOK, geo.CurrentMeta()) })
+
+			specialists := specialist.NewHandler(a.specialists, a.log)
+			r.Route("/specialists", specialists.CatalogueRoutes)
+			r.Route("/my/specialist", specialists.MyRoutes)
+
+			r.Route("/admin", func(r chi.Router) {
+				r.Use(auth.RequireAdmin)
+				r.Route("/specialists", specialists.AdminRoutes)
+			})
 		})
 	})
 	return r
