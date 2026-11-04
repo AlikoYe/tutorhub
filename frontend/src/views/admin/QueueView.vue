@@ -8,6 +8,7 @@ import { useBackButton, alertDialog, haptic } from '@/telegram'
 import Avatar from '@/components/Avatar.vue'
 import AsyncState from '@/components/AsyncState.vue'
 import ChipSelect from '@/components/ChipSelect.vue'
+import AdminSubscriptionPanel from '@/components/AdminSubscriptionPanel.vue'
 
 const router = useRouter()
 useBackButton(() => router.push('/admin'))
@@ -102,6 +103,7 @@ onMounted(load)
           <textarea v-model="decision.reason" rows="2" placeholder="Причина отказа (увидит преподаватель)" />
           <button class="btn danger block" :disabled="!decision.reason.trim()" @click="reject(p)">❌ Вернуть на доработку</button>
         </template>
+        <AdminSubscriptionPanel v-else :specialist-id="p.id" />
       </div>
     </div>
   </AsyncState>

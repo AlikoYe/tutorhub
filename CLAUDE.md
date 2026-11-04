@@ -22,6 +22,8 @@ backend/
     availability/       weekly template + days off, free-slot computation (pure, unit-tested)
     lessonstatus/       THE blocking / effective-status SQL for lessons; use it, never re-type it
     lesson/             lesson requests, confirm/decline (HTTP + bot), cancel, students, worker jobs
+    subscription/       plans/prices, admin activation/extension, founding period, expiry worker
+    stats/              profile_events recorder, weekly teacher stats, admin dashboard
     bot/                Telegram: Sender interface, Notifier, Links, command/callback dispatch;
                         every user-facing text is in bot/texts*.go
     notify/             background worker: runs registered jobs every REMINDER_INTERVAL
@@ -78,6 +80,16 @@ A package without business rules (e.g. `subject`) may skip the service.
 - Photos live in `UPLOAD_DIR/photos`, served publicly at `/api/files/photos/{name}` (img tags send
   no auth header); each upload gets a new random name, so files are cached forever.
 - Prices are configuration, not code.
+
+## Subscriptions and stats
+
+- Prices come from `PRICE_BASIC_KZT` / `PRICE_FEATURED_KZT`; payment is manual (Kaspi), an admin
+  activates. `months` extends after the running plan of the same plan; `ends_on` starts now.
+- Worker: 7-day and 1-day reminders before a teacher's *last* plan ends, and one notice after it
+  ended (only if it ended < 3 days ago). Flags on `subscriptions` make each message go out once.
+- `profile_events`: `view` (not owner/admin), `search_impression` (each card on a search page),
+  `contact`, `request`. `search_log` keeps first-page searches for the dashboard's unmet demand.
+  Stats are aggregated on read (weeks start on Monday in `TIMEZONE`).
 
 ## Lesson rules
 
