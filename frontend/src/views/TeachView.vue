@@ -3,7 +3,7 @@ import { onMounted, ref } from 'vue'
 import { api } from '@/api/client'
 import { loadMe } from '@/store'
 import { t, statuses, plans, lastDay } from '@/i18n'
-import { alertDialog, confirmDialog, haptic } from '@/telegram'
+import { alertDialog, confirmDialog, haptic, shareLink } from '@/telegram'
 import Avatar from '@/components/Avatar.vue'
 import AsyncState from '@/components/AsyncState.vue'
 
@@ -46,6 +46,8 @@ function copyLink() {
   navigator.clipboard?.writeText(p.value.personal_link)
   haptic('light')
 }
+
+const origin = window.location.origin
 
 const links = [
   { to: '/teach/lessons', icon: '📋', label: 'Заявки и уроки', hint: 'Подтверждайте заявки учеников' },
@@ -107,9 +109,11 @@ onMounted(load)
 
       <div v-if="p.personal_link && (p.status === 'live' || p.status === 'hidden')" class="card">
         <div class="hint">Личная ссылка для ваших учеников</div>
+        <div class="hint">Публичная страница: <a :href="`/t/${p.id}`" target="_blank">{{ origin }}/t/{{ p.id }}</a></div>
         <div class="row">
           <code class="grow" style="overflow-wrap: anywhere">{{ p.personal_link }}</code>
           <button class="btn secondary small" @click="copyLink">📋</button>
+          <button class="btn secondary small" @click="shareLink(p.personal_link, 'Записывайтесь ко мне на уроки в TutorHub')">↗</button>
         </div>
       </div>
 

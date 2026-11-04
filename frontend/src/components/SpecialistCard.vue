@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { t, formats, formatPrice } from '@/i18n'
+import { t, formats, formatPrice, subjectName } from '@/i18n'
 import { districtName } from '@/store'
 import Avatar from './Avatar.vue'
 import Stars from './Stars.vue'
@@ -33,7 +33,7 @@ const price = computed(() => {
           <span v-if="s.trial_kind === 'free'" class="badge warn">{{ t('trialFree') }}</span>
           <Stars v-if="s.rating" :value="s.rating" :count="s.reviews_count" />
         </div>
-        <div class="subjects">{{ shownSubjects.map((o) => o.name_ru).join(' · ') }}</div>
+        <div class="subjects">{{ shownSubjects.map(subjectName).join(' · ') }}</div>
         <div class="hint">
           <span v-if="s.district">{{ districtName(s.city, s.district) }} · </span>
           {{ s.formats.map((f) => formats[f]).join(', ') }}

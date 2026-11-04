@@ -1,0 +1,17 @@
+{{define "body"}}
+<h1>{{.Data.Heading}}</h1>
+{{if .Data.Intro}}<p class="hint">{{.Data.Intro}}</p>{{end}}
+{{if .Data.Items}}<p class="hint">{{.Tx.found}}: {{.Data.Total}}</p>{{end}}
+{{range .Data.Items}}
+<a class="card row" href="{{.URL}}" style="color:inherit">
+  {{if .Photo}}<img class="avatar" src="{{.Photo}}" alt="{{.Name}}">{{end}}
+  <div style="flex:1">
+    <div class="row between"><strong>{{.Name}}</strong>{{if .MinPrice}}<span>{{$.Tx.from}} {{price .MinPrice}}</span>{{end}}</div>
+    <div>{{if .Verified}}<span class="badge">✓ {{$.Tx.verified}}</span>{{end}}{{if .Rating}}<span class="stars">★</span> {{printf "%.1f" .Rating}}{{end}}</div>
+    <div class="hint">{{.Subjects}}</div>
+    <div class="hint">{{.Meta}}</div>
+  </div>
+</a>
+{{else}}<div class="card hint">{{.Tx.nobody}}</div>{{end}}
+{{if .Data.Links}}<div class="card"><h2>{{.Data.LinksTitle}}</h2><div class="chips">{{range .Data.Links}}<a href="{{.URL}}">{{.Label}}{{if .Count}} · {{.Count}}{{end}}</a>{{end}}</div></div>{{end}}
+{{end}}

@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import { store, loadMeta, loadSubjects } from '@/store'
-import { t, levels, formats, languages, categories } from '@/i18n'
+import { t, levels, formats, languages, categories, subjectName, placeName, LOCALES, locale, setLocale } from '@/i18n'
 import SpecialistCard from '@/components/SpecialistCard.vue'
 import ChipSelect from '@/components/ChipSelect.vue'
 import AsyncState from '@/components/AsyncState.vue'
@@ -73,7 +73,12 @@ onMounted(async () => {
 </script>
 
 <template>
-  <h1>{{ t('appName') }}</h1>
+  <div class="row between">
+    <h1>{{ t('appName') }}</h1>
+    <div class="row langs">
+      <button v-for="(label, l) in LOCALES" :key="l" class="chip" :class="{ on: locale === l }" @click="setLocale(l)">{{ label }}</button>
+    </div>
+  </div>
   <div class="row" style="margin-bottom: 10px">
     <input v-model="f.q" type="search" :placeholder="t('searchPlaceholder')" class="grow" />
     <button class="btn secondary" @click="showFilters = !showFilters">
@@ -83,22 +88,22 @@ onMounted(async () => {
 
   <div v-if="showFilters" class="card">
     <label class="field">
-      <span>Предмет</span>
+      <span>{{ t('subject') }}</span>
       <select v-model="f.subject_id">
         <option value="">{{ t('anySubject') }}</option>
         <optgroup v-for="(list, cat) in subjectGroups" :key="cat" :label="categories[cat]">
-          <option v-for="s in list" :key="s.id" :value="String(s.id)">{{ s.name_ru }}</option>
+          <option v-for="s in list" :key="s.id" :value="String(s.id)">{{ subjectName(s) }}</option>
         </optgroup>
       </select>
     </label>
-    <div class="field"><span class="hint">Уровень</span><ChipSelect v-model="f.level" :options="levels" /></div>
-    <div class="field"><span class="hint">Язык занятий</span><ChipSelect v-model="f.language" :options="languages" /></div>
-    <div class="field"><span class="hint">Формат</span><ChipSelect v-model="f.format" :options="formats" /></div>
+    <div class="field"><span class="hint">{{ t('level') }}</span><ChipSelect v-model="f.level" :options="levels" /></div>
+    <div class="field"><span class="hint">{{ t('lessonLanguage') }}</span><ChipSelect v-model="f.language" :options="languages" /></div>
+    <div class="field"><span class="hint">{{ t('format') }}</span><ChipSelect v-model="f.format" :options="formats" /></div>
     <label class="field">
-      <span>Район</span>
+      <span>{{ t('district') }}</span>
       <select v-model="f.district">
         <option value="">{{ t('anyDistrict') }}</option>
-        <option v-for="d in districts" :key="d.slug" :value="d.slug">{{ d.name_ru }}</option>
+        <option v-for="d in districts" :key="d.slug" :value="d.slug">{{ placeName(d) }}</option>
       </select>
     </label>
     <div class="row field">
@@ -106,8 +111,8 @@ onMounted(async () => {
       <input v-model="f.price_max" type="number" min="0" inputmode="numeric" :placeholder="t('priceTo')" />
     </div>
     <label class="row field"><input v-model="f.verified" type="checkbox" style="width: auto" true-value="true" false-value="" /> {{ t('verifiedOnly') }}</label>
-    <label class="row field"><input v-model="f.free_this_week" type="checkbox" style="width: auto" true-value="true" false-value="" /> Есть свободное время на неделе</label>
-    <div class="field"><span class="hint">Рейтинг</span><ChipSelect v-model="f.rating_min" :options="{ 3: 'от 3★', 4: 'от 4★', 5: '5★' }" /></div>
+    <label class="row field"><input v-model="f.free_this_week" type="checkbox" style="width: auto" true-value="true" false-value="" /> {{ t('freeThisWeek') }}</label>
+    <div class="field"><span class="hint">{{ t('rating') }}</span><ChipSelect v-model="f.rating_min" :options="{ 3: 'от 3★', 4: 'от 4★', 5: '5★' }" /></div>
     <button class="btn secondary small" @click="reset">{{ t('resetFilters') }}</button>
   </div>
 
@@ -118,3 +123,8 @@ onMounted(async () => {
     <button v-if="items.length < total" class="btn secondary block" @click="search(true)">{{ t('loadMore') }}</button>
   </AsyncState>
 </template>
+
+<style scoped>
+.langs { gap: 4px; }
+.langs .chip { padding: 2px 8px; font-size: 12px; }
+</style>

@@ -11,6 +11,10 @@ info:
     `Telegram.WebApp.initData` string). When the server runs with `APP_ENV=dev`,
     `Authorization: dev <telegram_id>` is also accepted.
 
+    The public website (`/t/{id}`, `/c/{city}`, `/c/{city}/{subject}`, `/sitemap.xml`,
+    `/robots.txt`) is server-rendered HTML served by the same backend and is not part of
+    this contract.
+
     ## Conventions
     - All timestamps are RFC 3339 with an offset, in the app time zone (`Asia/Almaty`).
     - `date` values (`YYYY-MM-DD`) are calendar dates in the app time zone.

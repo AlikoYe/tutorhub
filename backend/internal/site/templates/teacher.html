@@ -1,0 +1,32 @@
+{{define "body"}}{{$p := .Data.Profile}}{{$lang := .Lang}}
+<div class="card">
+  <div class="row">
+    {{if $p.PhotoURL}}<img class="avatar" src="{{$p.PhotoURL}}" alt="{{$p.DisplayName}}">{{end}}
+    <div>
+      <h1>{{$p.DisplayName}}</h1>
+      <div class="hint">{{.Data.Place}}</div>
+      <div>{{if $p.Verified}}<span class="badge">✓ {{.Tx.verified}}</span>{{end}}{{if $p.ExperienceYears}}<span class="hint">{{$p.ExperienceYears}} {{.Tx.years}}</span>{{end}}</div>
+      {{if $p.Rating}}<div><span class="stars">★</span> {{printf "%.1f" (deref $p.Rating)}} <span class="hint">({{$p.ReviewsCount}})</span></div>{{end}}
+    </div>
+  </div>
+  {{if not $p.Listed}}<p class="hint">{{.Tx.notListed}}</p>{{end}}
+  <p>
+    {{if .Data.BookURL}}<a class="btn" href="{{.Data.BookURL}}">{{.Tx.book}}</a>{{end}}
+    <a class="btn secondary" href="{{.Data.ShareURL}}">{{.Tx.share}}</a>
+  </p>
+</div>
+<div class="card">
+  <h2>{{.Tx.subjects}}</h2>
+  {{range .Data.Offers}}<div class="offer"><div>{{.Name}}<div class="hint">{{.Levels}}</div></div><strong>{{price .Price}}</strong></div>{{end}}
+  {{if eq $p.TrialKind "free"}}<p class="hint">{{.Tx.trialFree}}</p>{{end}}
+</div>
+<div class="card">
+  <div class="hint">{{.Tx.formats}}</div><div>{{.Data.Formats}}</div>
+  <div class="hint" style="margin-top:8px">{{.Tx.languages}}</div><div>{{.Data.Languages}}</div>
+</div>
+{{if $p.Bio}}<div class="card"><h2>{{.Tx.about}}</h2><p class="pre">{{$p.Bio}}</p></div>{{end}}
+{{if $p.Education}}<div class="card"><h2>{{.Tx.education}}</h2><p class="pre">{{$p.Education}}</p></div>{{end}}
+{{if .Data.Reviews}}<div class="card"><h2>{{.Tx.reviews}}</h2>
+  {{range .Data.Reviews}}<div class="offer"><div><strong>{{.AuthorName}}</strong>{{if .Text}}<div class="pre">{{.Text}}</div>{{end}}</div><span class="stars">{{stars .Rating}}</span></div>{{end}}
+</div>{{end}}
+{{end}}

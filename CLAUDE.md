@@ -27,6 +27,8 @@ backend/
     review/             reviews after a completed lesson (one per student per teacher), moderation
     moderation/         profile reports, blocking users
     verification/       verified badge: documents (admins only, UPLOAD_DIR/documents) + decision
+    site/               public website (html/template): /t/{id}, /c/{city}, /c/{city}/{subject},
+                        sitemap.xml, robots.txt; ru/kk/en via ?lang=
     bot/                Telegram: Sender interface, Notifier, Links, command/callback dispatch;
                         every user-facing text is in bot/texts*.go
     notify/             background worker: runs registered jobs every REMINDER_INTERVAL
@@ -75,7 +77,10 @@ A package without business rules (e.g. `subject`) may skip the service.
   `BOT_TOKEN`, `bot.LogSender` logs every message instead, so dev runs the same code.
   Domain notifications go through `bot.Notifier` (background, detached context, 10 s
   timeout, failures logged at warn and never fail a request). Tests call `Notifier.Wait()`.
-- UI and bot texts are Russian for now (kk/en in M5).
+- UI: student-facing screens are translated (ru/kk/en, `frontend/src/i18n.js`, locale from the
+  Telegram language or the switcher); teacher/admin screens and bot texts are Russian.
+- The public website is HTML, not part of `docs/api.yaml`; Caddy routes `/t/*`, `/c/*`,
+  `/sitemap.xml` and `/robots.txt` to the API. `SITE_URL` sets canonical/sitemap URLs.
 - Specialist status: draft -> pending (submit) -> live (admin approve, starts trial/founding plan) or
   back to draft with rejection_reason; live <-> hidden by the teacher; blocked by admins.
   Listed in search iff `visibility.ListedSQL`; the profile page opens while `status = live`

@@ -1,0 +1,41 @@
+{{define "layout"}}<!doctype html>
+<html lang="{{.Lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}</title>
+<meta name="description" content="{{.Description}}">
+<link rel="canonical" href="{{.Canonical}}">
+{{range .Alternates}}<link rel="alternate" hreflang="{{.Lang}}" href="{{.URL}}">
+{{end}}{{if .Noindex}}<meta name="robots" content="noindex">
+{{end}}<meta property="og:type" content="website">
+<meta property="og:site_name" content="TutorHub">
+<meta property="og:title" content="{{.Title}}">
+<meta property="og:description" content="{{.Description}}">
+<meta property="og:url" content="{{.Canonical}}">
+{{if .Image}}<meta property="og:image" content="{{.Image}}">
+{{end}}<meta name="twitter:card" content="summary">
+{{if .JSONLD}}<script type="application/ld+json">{{.JSONLD}}</script>
+{{end}}<style>
+:root{--bg:#f1f2f6;--card:#fff;--text:#15171c;--hint:#6b7280;--accent:#2f6fed;color-scheme:light dark}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1013;--card:#1f2126;--text:#f2f3f5;--hint:#9aa0aa}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+a{color:var(--accent);text-decoration:none}main{max-width:760px;margin:0 auto;padding:16px}
+header{display:flex;justify-content:space-between;align-items:center;max-width:760px;margin:0 auto;padding:12px 16px}
+.logo{font-weight:700;font-size:18px;color:var(--text)}.langs a{margin-left:10px;font-size:14px}.langs b{margin-left:10px;font-size:14px}
+.card{background:var(--card);border-radius:14px;padding:16px;margin-bottom:12px}h1{font-size:26px;margin:4px 0 12px}h2{font-size:18px;margin:0 0 8px}
+.hint{color:var(--hint);font-size:14px}.row{display:flex;gap:12px;align-items:center}.between{justify-content:space-between}
+.avatar{width:72px;height:72px;border-radius:50%;object-fit:cover;background:var(--bg);flex:none}
+.badge{display:inline-block;font-size:12px;font-weight:600;border-radius:6px;padding:1px 7px;background:#e7f6ec;color:#1f8f4e;margin-right:4px}
+.btn{display:inline-block;background:var(--accent);color:#fff;border-radius:10px;padding:10px 16px;font-weight:600;margin:4px 6px 4px 0}
+.btn.secondary{background:var(--bg);color:var(--text)}.offer{display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid rgba(127,127,127,.15)}
+.chips a{display:inline-block;background:var(--card);border-radius:999px;padding:4px 12px;margin:0 6px 6px 0;font-size:14px}
+.stars{color:#f5a524}.pre{white-space:pre-wrap}footer{text-align:center;color:var(--hint);font-size:13px;padding:24px 16px}
+</style>
+</head>
+<body>
+<header><a class="logo" href="{{.Home}}">🎓 TutorHub</a><span class="langs">{{range .Alternates}}{{if eq .Lang $.Lang}}<b>{{.Label}}</b>{{else}}<a href="{{.URL}}">{{.Label}}</a>{{end}}{{end}}</span></header>
+<main>{{template "body" .}}</main>
+<footer>{{.Tx.footer}}</footer>
+</body>
+</html>{{end}}

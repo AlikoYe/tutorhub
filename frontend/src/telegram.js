@@ -86,3 +86,8 @@ export function useMainButton(state, onClick) {
   })
   return { native }
 }
+
+// shareLink opens Telegram's "share to chat" sheet for url.
+export function shareLink(url, text = '') {
+  openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`)
+}

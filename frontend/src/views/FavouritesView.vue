@@ -30,7 +30,7 @@ onMounted(load)
   <h1>{{ t('tabFavourites') }}</h1>
   <AsyncState :loading="loading" :error="error" @retry="load">
     <div v-if="!items.length" class="card empty">
-      <p>Сохраняйте понравившихся преподавателей кнопкой ☆ в профиле.</p>
+      <p>{{ t('favouritesEmpty') }}</p>
       <router-link to="/" class="btn">{{ t('tabCatalogue') }}</router-link>
     </div>
     <SpecialistCard v-for="s in items" :key="s.id" :s="s" />
