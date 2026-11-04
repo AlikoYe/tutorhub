@@ -33,7 +33,9 @@ type InvalidError struct{ Msg string }
 
 func (e *InvalidError) Error() string { return e.Msg }
 
-func invalid(format string, args ...any) error { return &InvalidError{Msg: fmt.Sprintf(format, args...)} }
+func invalid(format string, args ...any) error {
+	return &InvalidError{Msg: fmt.Sprintf(format, args...)}
+}
 
 // Offer is one subject a specialist teaches, with levels and price per lesson.
 type Offer struct {
