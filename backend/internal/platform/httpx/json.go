@@ -33,6 +33,10 @@ const (
 	CodeTrialUnavailable    = "trial_unavailable"
 	CodeOutsideAvailability = "outside_availability"
 	CodeTooSoon             = "too_soon"
+
+	CodeNoCompletedLesson = "no_completed_lesson"
+	CodeNoDocuments       = "no_documents"
+	CodeInvalidDocument   = "invalid_document"
 )
 
 const maxBodyBytes = 1 << 20 // 1 MiB

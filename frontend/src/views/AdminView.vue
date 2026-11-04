@@ -5,6 +5,9 @@ const sections = [
   { to: '/admin/dashboard', icon: '📊', label: 'Дашборд', hint: 'Преподаватели, поиски, заявки, спрос' },
   { to: '/admin/queue', icon: '🗂', label: 'Анкеты', hint: 'Проверка и все профили по статусам' },
   { to: '/admin/subscriptions', icon: '💳', label: 'Подписки', hint: 'Заканчиваются скоро, период «Основатель»' },
+  { to: '/admin/verifications', icon: '🎓', label: 'Проверка документов', hint: 'Запросы на значок «Проверен»' },
+  { to: '/admin/reports', icon: '🚩', label: 'Жалобы', hint: 'Жалобы пользователей на профили' },
+  { to: '/admin/reviews', icon: '⭐', label: 'Отзывы', hint: 'Модерация отзывов' },
 ]
 </script>
 

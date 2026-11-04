@@ -67,8 +67,14 @@ func FreeSoonSQL(tz string) string {
 	return strings.ReplaceAll(q, "TZ", tz)
 }
 
+// RatingSQL is the average published review rating of s (NULL without reviews).
+const RatingSQL = `(SELECT avg(r.rating) FROM reviews r WHERE r.specialist_id = s.id AND r.status = 'published')`
+
+// ReviewsCountSQL counts the published reviews of s.
+const ReviewsCountSQL = `(SELECT count(*) FROM reviews r WHERE r.specialist_id = s.id AND r.status = 'published')`
+
 // RankSQL orders listed specialists: featured first, then those with free time this week,
-// then the most recently approved.
+// then by rating, then the most recently approved.
 func RankSQL(tz string) string {
-	return FeaturedSQL + ` DESC, ` + FreeSoonSQL(tz) + ` DESC, s.approved_at DESC NULLS LAST, s.id DESC`
+	return FeaturedSQL + ` DESC, ` + FreeSoonSQL(tz) + ` DESC, ` + RatingSQL + ` DESC NULLS LAST, s.approved_at DESC NULLS LAST, s.id DESC`
 }

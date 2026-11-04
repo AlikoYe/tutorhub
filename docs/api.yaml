@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: TutorHub API
-  version: 0.4.0
+  version: 0.5.0
   description: |
     Backend for the TutorHub Telegram Mini App: a catalogue of teachers, tutors and
     consultants in Kazakhstan (Almaty first).
@@ -41,6 +41,14 @@ info:
     The worker reminds the teacher 7 days and 1 day before their last plan ends and tells them
     when they leave search.
 
+    ## Trust
+    Reviews: one per student per teacher, only after a completed lesson, editable; admins can
+    hide them. `rating` is the average of published reviews (one decimal) and ranks after
+    "free this week". Reports go to admins. Admins can block a profile (with a reason the owner
+    sees) or a user (every request then gets 403). Verified badge: the teacher uploads documents
+    (PDF/JPEG/PNG, at most 5) that only admins can download, asks for verification, and an admin
+    grants or refuses the badge.
+
     ## Statistics
     Events per specialist: `view` (profile opened by someone else), `search_impression` (shown in
     a search page), `contact` (`POST /specialists/{id}/contact`), `request` (lesson requested).
@@ -65,7 +73,7 @@ info:
     |------|------|------|
     | `bad_request` | 400 | Malformed JSON, missing or invalid parameters. |
     | `unauthorized` | 401 | Missing, malformed, expired or badly signed `Authorization` header. |
-    | `forbidden` | 403 | The current user may not do this (admin endpoints for non-admins; editing a blocked profile). |
+    | `forbidden` | 403 | The current user may not do this (admin endpoints for non-admins; editing a blocked profile). A blocked user gets 403 on every authenticated endpoint. |
     | `not_found` | 404 | The resource does not exist or is not visible to the current user. Unknown routes. |
     | `method_not_allowed` | 405 | Wrong HTTP method for an existing path. |
     | `invalid_status` | 409 | The profile's status does not allow this action (e.g. submit when not `draft`, approve when not `pending`, hide when not `live`). |
@@ -80,6 +88,9 @@ info:
     | `trial_unavailable` | 422 | `POST /lessons` with `is_trial`: the teacher offers no trial, or the student already had one with them. |
     | `outside_availability` | 422 | `POST /lessons`: `starts_at` is not a slot of the teacher's weekly template (30-minute grid, lesson fits a window, not a day off) or is more than 30 days ahead. |
     | `too_soon` | 422 | `POST /lessons`: `starts_at` is less than 1 hour from now. |
+    | `no_completed_lesson` | 422 | `PUT /specialists/{id}/review` without a completed lesson with that teacher. |
+    | `invalid_document` | 422 | `POST /my/specialist/documents`: not a PDF/JPEG/PNG, over 10 MB, or more than 5 documents. |
+    | `no_documents` | 422 | `POST /my/specialist/verification` before uploading a document. |
     | `internal` | 500 | Unexpected server error. |
     | `unavailable` | 503 | `/health`: the database is unreachable. |
   license:
@@ -107,6 +118,8 @@ tags:
     description: Plans, prices and the teacher's subscription.
   - name: stats
     description: Teacher statistics and the admin dashboard.
+  - name: trust
+    description: Reviews, reports and the verified badge.
   - name: admin
     description: Admin-only endpoints (users.role = admin).
 
@@ -142,6 +155,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Me" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
 
   /subjects:
     get:
@@ -158,6 +172,7 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/Subject" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
 
   /meta:
     get:
@@ -171,6 +186,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Meta" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
 
   /specialists:
     get:
@@ -192,6 +208,7 @@ paths:
         - { name: price_max, in: query, schema: { type: integer, minimum: 0, maximum: 1000000 } }
         - { name: verified, in: query, description: Only verified specialists., schema: { type: boolean } }
         - { name: free_this_week, in: query, description: Only those with free time in the next 7 days., schema: { type: boolean } }
+        - { name: rating_min, in: query, description: Minimum average rating., schema: { type: integer, minimum: 1, maximum: 5 } }
         - { name: q, in: query, schema: { type: string, maxLength: 100 } }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
         - { name: offset, in: query, schema: { type: integer, minimum: 0, maximum: 10000, default: 0 } }
@@ -203,6 +220,7 @@ paths:
               schema: { $ref: "#/components/schemas/SpecialistPage" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
 
   /specialists/{id}:
     get:
@@ -219,6 +237,7 @@ paths:
               schema: { $ref: "#/components/schemas/SpecialistPublic" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /my/specialist:
@@ -229,6 +248,7 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/MySpecialist" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
     put:
       tags: [my-profile]
@@ -259,6 +279,7 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/MySpecialist" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/InvalidStatus" }
         "422": { $ref: "#/components/responses/ProfileIncomplete" }
@@ -271,6 +292,7 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/MySpecialist" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/InvalidStatus" }
 
@@ -282,6 +304,7 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/MySpecialist" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/InvalidStatus" }
 
@@ -346,6 +369,7 @@ paths:
               schema: { $ref: "#/components/schemas/Slots" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /lessons:
@@ -376,6 +400,7 @@ paths:
               schema: { $ref: "#/components/schemas/Lesson" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/LessonConflict" }
         "422": { $ref: "#/components/responses/LessonUnprocessable" }
@@ -398,6 +423,7 @@ paths:
               schema: { type: array, items: { $ref: "#/components/schemas/Lesson" } }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
 
   /lessons/{id}/cancel:
     post:
@@ -415,6 +441,7 @@ paths:
               schema: { $ref: "#/components/schemas/Lesson" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/LessonStateConflict" }
 
@@ -436,6 +463,7 @@ paths:
               schema: { type: array, items: { $ref: "#/components/schemas/Lesson" } }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /teacher/lessons/{id}/confirm:
@@ -494,6 +522,7 @@ paths:
             application/json:
               schema: { type: array, items: { $ref: "#/components/schemas/Student" } }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /teacher/students/{studentId}/note:
@@ -517,6 +546,7 @@ paths:
         "204": { description: Saved. }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /teacher/availability:
@@ -527,6 +557,7 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/Availability" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /teacher/availability/rules:
@@ -549,6 +580,7 @@ paths:
         "200": { $ref: "#/components/responses/Availability" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /teacher/availability/days-off/{day}:
@@ -562,6 +594,7 @@ paths:
         "200": { $ref: "#/components/responses/Availability" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
     delete:
       tags: [teacher]
@@ -571,6 +604,7 @@ paths:
         "200": { $ref: "#/components/responses/Availability" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /specialists/{id}/contact:
@@ -592,6 +626,7 @@ paths:
                   telegram_url: { type: string, example: "https://t.me/aigerim_math", description: "https://t.me/<username>, or tg://user?id=<id> without a username." }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /favourites:
@@ -610,6 +645,7 @@ paths:
                   allOf: [{ $ref: "#/components/schemas/SpecialistCard" }]
                   unevaluatedProperties: false
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
 
   /favourites/{id}:
     parameters: [{ $ref: "#/components/parameters/Id" }]
@@ -621,6 +657,7 @@ paths:
         "204": { description: Saved. }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
     delete:
       tags: [catalogue]
@@ -630,6 +667,7 @@ paths:
         "204": { description: Removed. }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
 
   /plans:
     get:
@@ -657,6 +695,7 @@ paths:
                         price_kzt: { type: integer, description: Per month. }
                   payment_instructions: { type: string }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
 
   /teacher/subscription:
     get:
@@ -666,6 +705,7 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/SubscriptionState" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /teacher/stats:
@@ -689,6 +729,7 @@ paths:
                   totals: { $ref: "#/components/schemas/StatsWeek" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /admin/specialists/{id}/subscriptions:
@@ -818,6 +859,405 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+
+  /specialists/{id}/reviews:
+    get:
+      tags: [trust]
+      operationId: listReviews
+      summary: Published reviews of a specialist, newest first (at most 100)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200":
+          description: Reviews.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Review" } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /specialists/{id}/review:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      tags: [trust]
+      operationId: myReview
+      summary: The current user's review of this specialist and whether they may write one
+      responses:
+        "200":
+          description: The review state.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [can_review, review, hidden]
+                additionalProperties: false
+                properties:
+                  can_review: { type: boolean, description: True after a completed lesson (or when a review exists). }
+                  review: { oneOf: [{ type: "null" }, { $ref: "#/components/schemas/Review" }] }
+                  hidden: { type: boolean, description: Hidden by a moderator. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [trust]
+      operationId: saveReview
+      summary: Create or edit the current user's review (needs a completed lesson)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rating]
+              additionalProperties: false
+              properties:
+                rating: { type: integer, minimum: 1, maximum: 5 }
+                text: { type: string, maxLength: 2000 }
+      responses:
+        "200":
+          description: The saved review.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Review" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422":
+          description: "`no_completed_lesson`"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      tags: [trust]
+      operationId: deleteReview
+      summary: Delete the current user's review (idempotent)
+      responses:
+        "204": { description: Deleted. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /specialists/{id}/report:
+    post:
+      tags: [trust]
+      operationId: reportSpecialist
+      summary: Report a profile to the admins
+      description: While the user's earlier report on this profile is open, the same report is returned.
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string, enum: [fake, inappropriate, spam, no_show, other] }
+                text: { type: string, maxLength: 1000 }
+      responses:
+        "201":
+          description: The report.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Report" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /my/specialist/documents:
+    get:
+      tags: [trust]
+      operationId: myDocuments
+      summary: The teacher's verification documents (metadata only)
+      responses:
+        "200":
+          description: Documents.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Document" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [trust]
+      operationId: uploadDocument
+      summary: Upload a verification document (PDF, JPEG or PNG, at most 10 MB, at most 5)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "201":
+          description: The stored document.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Document" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422":
+          description: "`invalid_document`"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /my/specialist/documents/{id}:
+    delete:
+      tags: [trust]
+      operationId: deleteDocument
+      summary: Delete one of the teacher's documents
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "204": { description: Deleted. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /my/specialist/verification:
+    post:
+      tags: [trust]
+      operationId: requestVerification
+      summary: Ask admins to verify the uploaded documents
+      responses:
+        "200": { $ref: "#/components/responses/MySpecialist" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/InvalidStatus" }
+        "422":
+          description: "`no_documents`"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /admin/reviews:
+    get:
+      tags: [admin]
+      operationId: adminReviews
+      summary: Reviews by status, newest first (at most 200)
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [published, hidden], default: published } }
+      responses:
+        "200":
+          description: Reviews.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/AdminReview" } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/reviews/{id}/hide:
+    post:
+      tags: [admin]
+      operationId: adminHideReview
+      summary: Hide a review
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { $ref: "#/components/responses/AdminReview" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/reviews/{id}/unhide:
+    post:
+      tags: [admin]
+      operationId: adminUnhideReview
+      summary: Publish a hidden review again
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { $ref: "#/components/responses/AdminReview" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/reports:
+    get:
+      tags: [admin]
+      operationId: adminReports
+      summary: Reports by status, newest first (at most 200)
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [open, resolved, dismissed], default: open } }
+      responses:
+        "200":
+          description: Reports.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Report" } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/reports/{id}/resolve:
+    post:
+      tags: [admin]
+      operationId: adminResolveReport
+      summary: Close a report
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              additionalProperties: false
+              properties:
+                status: { type: string, enum: [resolved, dismissed] }
+      responses:
+        "200":
+          description: The report.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Report" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/users/{telegramId}/block:
+    post:
+      tags: [admin]
+      operationId: adminBlockUser
+      summary: Block a user (every request then gets 403); admins cannot be blocked
+      parameters:
+        - { name: telegramId, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
+      responses:
+        "204": { description: Blocked. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/users/{telegramId}/unblock:
+    post:
+      tags: [admin]
+      operationId: adminUnblockUser
+      summary: Unblock a user
+      parameters:
+        - { name: telegramId, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
+      responses:
+        "204": { description: Unblocked. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/specialists/{id}/block:
+    post:
+      tags: [admin]
+      operationId: adminBlockSpecialist
+      summary: Block a profile (any status -> blocked) with a reason the owner sees
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 500 }
+      responses:
+        "200": { $ref: "#/components/responses/MySpecialist" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/InvalidStatus" }
+
+  /admin/specialists/{id}/unblock:
+    post:
+      tags: [admin]
+      operationId: adminUnblockSpecialist
+      summary: Unblock a profile (back to live if it was ever approved, else draft)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { $ref: "#/components/responses/MySpecialist" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/InvalidStatus" }
+
+  /admin/verifications:
+    get:
+      tags: [admin]
+      operationId: adminVerifications
+      summary: Profiles waiting for document verification, with their documents
+      responses:
+        "200":
+          description: Requests, oldest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [specialist, documents]
+                  additionalProperties: false
+                  properties:
+                    specialist: { $ref: "#/components/schemas/SpecialistPrivate" }
+                    documents: { type: array, items: { $ref: "#/components/schemas/Document" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/specialists/{id}/verification:
+    post:
+      tags: [admin]
+      operationId: adminDecideVerification
+      summary: Grant or refuse the verified badge
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approve]
+              additionalProperties: false
+              properties:
+                approve: { type: boolean }
+                note: { type: string, maxLength: 500 }
+      responses:
+        "200": { $ref: "#/components/responses/MySpecialist" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/documents/{id}/file:
+    get:
+      tags: [admin]
+      operationId: adminDownloadDocument
+      summary: Download a verification document (admins only)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200":
+          description: The file.
+          content:
+            application/pdf: { schema: { type: string, format: binary } }
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /admin/specialists:
     get:
@@ -962,6 +1402,11 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Lesson" }
+    AdminReview:
+      description: The review.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/AdminReview" }
     SubscriptionState:
       description: Visibility and subscriptions.
       content:
@@ -1052,6 +1497,9 @@ components:
             - trial_unavailable
             - outside_availability
             - too_soon
+            - no_completed_lesson
+            - invalid_document
+            - no_documents
             - internal
             - unavailable
         message: { type: string }
@@ -1159,7 +1607,7 @@ components:
     SpecialistCard:
       type: object
       required: [id, kind, display_name, photo_url, verified, featured, city, district, formats, languages,
-                 experience_years, trial_kind, trial_price, min_price_kzt, subjects]
+                 experience_years, trial_kind, trial_price, min_price_kzt, rating, reviews_count, subjects]
       properties:
         id: { type: integer, format: int64 }
         kind: { $ref: "#/components/schemas/Kind" }
@@ -1175,6 +1623,8 @@ components:
         trial_kind: { type: string, enum: [none, free, paid] }
         trial_price: { type: [integer, "null"], description: Only for a paid trial. }
         min_price_kzt: { type: [integer, "null"], description: Cheapest subject price; null without subjects. }
+        rating: { type: [number, "null"], description: "Average of published reviews (one decimal); null without reviews." }
+        reviews_count: { type: integer }
         subjects: { type: array, items: { $ref: "#/components/schemas/Offer" } }
 
     SpecialistPage:
@@ -1224,7 +1674,8 @@ components:
         - $ref: "#/components/schemas/SpecialistCard"
         - $ref: "#/components/schemas/SpecialistPublicFields"
         - type: object
-          required: [status, rejection_reason, submitted_at, approved_at, lat, lng, subscription, personal_link, owner]
+          required: [status, rejection_reason, submitted_at, approved_at, lat, lng, subscription, personal_link, owner,
+                     verification_status, verification_note, block_reason]
           properties:
             status: { $ref: "#/components/schemas/SpecialistStatus" }
             rejection_reason: { type: [string, "null"] }
@@ -1238,6 +1689,9 @@ components:
                 - type: "null"
                 - $ref: "#/components/schemas/Subscription"
             personal_link: { type: [string, "null"], example: "https://t.me/tutorhub_bot?start=t_12" }
+            verification_status: { type: string, enum: [none, requested, verified, rejected] }
+            verification_note: { type: string, description: The admin's note on a refused verification. }
+            block_reason: { type: string }
             owner:
               type: object
               required: [telegram_id, name, username]
@@ -1466,3 +1920,64 @@ components:
               name_ru: { type: string }
               searches: { type: integer }
               listed_specialists: { type: integer }
+
+    Review:
+      type: object
+      required: [id, rating, text, author_name, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id: { type: integer, format: int64 }
+        rating: { type: integer, minimum: 1, maximum: 5 }
+        text: { type: string }
+        author_name: { type: string, description: The student's first name. }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    AdminReview:
+      type: object
+      required: [id, rating, text, author_name, created_at, updated_at, status, specialist, student_id]
+      additionalProperties: false
+      properties:
+        id: { type: integer, format: int64 }
+        rating: { type: integer }
+        text: { type: string }
+        author_name: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        status: { type: string, enum: [published, hidden] }
+        specialist: { $ref: "#/components/schemas/SpecialistRef" }
+        student_id: { type: integer, format: int64 }
+
+    SpecialistRef:
+      type: object
+      required: [id, display_name, photo_url]
+      additionalProperties: false
+      properties:
+        id: { type: integer, format: int64 }
+        display_name: { type: string }
+        photo_url: { type: [string, "null"] }
+
+    Report:
+      type: object
+      required: [id, specialist, reporter, reason, text, status, created_at, resolved_at]
+      additionalProperties: false
+      properties:
+        id: { type: integer, format: int64 }
+        specialist: { $ref: "#/components/schemas/SpecialistRef" }
+        reporter: { $ref: "#/components/schemas/Person" }
+        reason: { type: string, enum: [fake, inappropriate, spam, no_show, other] }
+        text: { type: string }
+        status: { type: string, enum: [open, resolved, dismissed] }
+        created_at: { type: string, format: date-time }
+        resolved_at: { type: [string, "null"], format: date-time }
+
+    Document:
+      type: object
+      required: [id, original_name, content_type, size_bytes, created_at]
+      additionalProperties: false
+      properties:
+        id: { type: integer, format: int64 }
+        original_name: { type: string }
+        content_type: { type: string, enum: [application/pdf, image/jpeg, image/png] }
+        size_bytes: { type: integer }
+        created_at: { type: string, format: date-time }

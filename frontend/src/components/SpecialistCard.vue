@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { t, formats, formatPrice } from '@/i18n'
 import { districtName } from '@/store'
 import Avatar from './Avatar.vue'
+import Stars from './Stars.vue'
 
 const props = defineProps({ s: { type: Object, required: true }, subjectId: { type: Number, default: null } })
 
@@ -30,6 +31,7 @@ const price = computed(() => {
           <span v-if="s.featured" class="badge accent">⭐ {{ t('featured') }}</span>
           <span v-if="s.verified" class="badge ok">✓ {{ t('verified') }}</span>
           <span v-if="s.trial_kind === 'free'" class="badge warn">{{ t('trialFree') }}</span>
+          <Stars v-if="s.rating" :value="s.rating" :count="s.reviews_count" />
         </div>
         <div class="subjects">{{ shownSubjects.map((o) => o.name_ru).join(' · ') }}</div>
         <div class="hint">

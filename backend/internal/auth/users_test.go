@@ -13,8 +13,8 @@ func TestUserRepoUpsert(t *testing.T) {
 	ctx := context.Background()
 	repo := auth.NewUserRepo(db)
 
-	role, err := repo.Upsert(ctx, auth.User{ID: 5, FirstName: "Ann", Username: "ann", LanguageCode: "kk"})
-	if err != nil || role != auth.RoleUser {
+	role, blocked, err := repo.Upsert(ctx, auth.User{ID: 5, FirstName: "Ann", Username: "ann", LanguageCode: "kk"})
+	if err != nil || role != auth.RoleUser || blocked {
 		t.Fatalf("first upsert: role=%q err=%v", role, err)
 	}
 
@@ -22,7 +22,7 @@ func TestUserRepoUpsert(t *testing.T) {
 	if _, err := db.Exec(ctx, `UPDATE users SET role = 'admin' WHERE telegram_id = 5`); err != nil {
 		t.Fatal(err)
 	}
-	role, err = repo.Upsert(ctx, auth.User{ID: 5, FirstName: "Ann", LastName: "Lee"})
+	role, _, err = repo.Upsert(ctx, auth.User{ID: 5, FirstName: "Ann", LastName: "Lee"})
 	if err != nil || role != auth.RoleAdmin {
 		t.Fatalf("second upsert: role=%q err=%v", role, err)
 	}
@@ -42,7 +42,7 @@ func TestEnsureAdmins(t *testing.T) {
 	ctx := context.Background()
 	repo := auth.NewUserRepo(db)
 
-	if _, err := repo.Upsert(ctx, auth.User{ID: 7, FirstName: "Existing"}); err != nil {
+	if _, _, err := repo.Upsert(ctx, auth.User{ID: 7, FirstName: "Existing"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.EnsureAdmins(ctx, []int64{7, 8}); err != nil {
@@ -58,7 +58,7 @@ func TestEnsureAdmins(t *testing.T) {
 	if n != 2 {
 		t.Fatalf("%d admins, want 2", n)
 	}
-	role, err := repo.Upsert(ctx, auth.User{ID: 8, FirstName: "New"})
+	role, _, err := repo.Upsert(ctx, auth.User{ID: 8, FirstName: "New"})
 	if err != nil || role != auth.RoleAdmin {
 		t.Fatalf("admin after login: role=%q err=%v", role, err)
 	}

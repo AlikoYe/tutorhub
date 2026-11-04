@@ -12,9 +12,9 @@ import (
 	"github.com/AlikoYe/tutorhub/backend/internal/platform/httpx"
 )
 
-// UserStore saves the authenticated user and returns their role.
+// UserStore saves the authenticated user and returns their role and whether they are blocked.
 type UserStore interface {
-	Upsert(ctx context.Context, u User) (role string, err error)
+	Upsert(ctx context.Context, u User) (role string, blocked bool, err error)
 }
 
 // Options configures Middleware.
@@ -88,10 +88,14 @@ func Middleware(opts Options) func(http.Handler) http.Handler {
 				return
 			}
 
-			role, err := opts.Users.Upsert(r.Context(), user)
+			role, blocked, err := opts.Users.Upsert(r.Context(), user)
 			if err != nil {
 				log.ErrorContext(r.Context(), "upsert user", slog.Int64("telegram_id", user.ID), slog.Any("err", err))
 				httpx.Internal(w)
+				return
+			}
+			if blocked {
+				httpx.Error(w, http.StatusForbidden, httpx.CodeForbidden, "your account is blocked")
 				return
 			}
 			user.Role = role

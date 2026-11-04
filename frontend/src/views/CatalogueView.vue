@@ -11,7 +11,7 @@ import AsyncState from '@/components/AsyncState.vue'
 const route = useRoute()
 const router = useRouter()
 
-const FILTER_KEYS = ['q', 'subject_id', 'level', 'language', 'format', 'district', 'price_min', 'price_max', 'verified', 'free_this_week']
+const FILTER_KEYS = ['q', 'subject_id', 'level', 'language', 'format', 'district', 'price_min', 'price_max', 'verified', 'free_this_week', 'rating_min']
 const f = reactive(Object.fromEntries(FILTER_KEYS.map((k) => [k, route.query[k] ?? ''])))
 const showFilters = ref(false)
 const items = ref([])
@@ -107,6 +107,7 @@ onMounted(async () => {
     </div>
     <label class="row field"><input v-model="f.verified" type="checkbox" style="width: auto" true-value="true" false-value="" /> {{ t('verifiedOnly') }}</label>
     <label class="row field"><input v-model="f.free_this_week" type="checkbox" style="width: auto" true-value="true" false-value="" /> Есть свободное время на неделе</label>
+    <div class="field"><span class="hint">Рейтинг</span><ChipSelect v-model="f.rating_min" :options="{ 3: 'от 3★', 4: 'от 4★', 5: '5★' }" /></div>
     <button class="btn secondary small" @click="reset">{{ t('resetFilters') }}</button>
   </div>
 

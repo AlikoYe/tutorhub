@@ -38,3 +38,9 @@ Choices made while building unattended. One line each: what and why.
 - M3: views by the owner and by admins are not counted; impressions are counted for every card on any search page; searches are logged once per query (first page) for the dashboard.
 - M3: "unmet demand" = subjects searched in the last 30 days with fewer than 3 listed specialists, fewest first.
 - M3: favourites and the contact button were added here (contact = lead event); the contact link is https://t.me/<username> or tg://user?id=<id>.
+- M4: a review needs a lesson whose effective status is completed (a confirmed lesson that has ended counts before the worker flips it). Editing a review keeps its moderation status; only new reviews notify the teacher.
+- M4: rating = average of published reviews rounded to one decimal; ranking is featured -> free this week -> rating -> newest. `rating_min` takes whole stars (1-5).
+- M4: a repeat report from the same user while their report is open returns the open report (no duplicate admin pings).
+- M4: blocking a user blocks every API call (403) but leaves their data; admins cannot be blocked. Blocking a profile is separate and carries a reason the owner sees.
+- M4: verification documents are PDF/JPEG/PNG (sniffed), at most 5 per teacher, 10 MB each, stored under UPLOAD_DIR/documents with random names and served only to admins with `Cache-Control: private, no-store`.
+- M4: every authenticated operation in docs/api.yaml now lists 403, because a blocked user gets 403 everywhere.

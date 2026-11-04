@@ -15,13 +15,16 @@ import (
 	"github.com/AlikoYe/tutorhub/backend/internal/bot"
 	"github.com/AlikoYe/tutorhub/backend/internal/geo"
 	"github.com/AlikoYe/tutorhub/backend/internal/lesson"
+	"github.com/AlikoYe/tutorhub/backend/internal/moderation"
 	"github.com/AlikoYe/tutorhub/backend/internal/notify"
 	"github.com/AlikoYe/tutorhub/backend/internal/platform/config"
 	"github.com/AlikoYe/tutorhub/backend/internal/platform/httpx"
+	"github.com/AlikoYe/tutorhub/backend/internal/review"
 	"github.com/AlikoYe/tutorhub/backend/internal/specialist"
 	"github.com/AlikoYe/tutorhub/backend/internal/stats"
 	"github.com/AlikoYe/tutorhub/backend/internal/subject"
 	"github.com/AlikoYe/tutorhub/backend/internal/subscription"
+	"github.com/AlikoYe/tutorhub/backend/internal/verification"
 )
 
 // app wires every domain service; shared by the HTTP router, the bot and the worker.
@@ -39,6 +42,9 @@ type app struct {
 	subs        *subscription.Service
 	events      *stats.Recorder
 	stats       *stats.Service
+	reviews     *review.Service
+	moderation  *moderation.Service
+	verify      *verification.Service
 }
 
 func newApp(cfg config.Config, log *slog.Logger, db *pgxpool.Pool, notifier *bot.Notifier) *app {
@@ -72,6 +78,9 @@ func newApp(cfg config.Config, log *slog.Logger, db *pgxpool.Pool, notifier *bot
 		},
 		PaymentInstructions: cfg.PaymentInstructions,
 	}, notifier, cfg.Timezone, log)
+	a.reviews = review.NewService(db, a.specialists, notifier, cfg.Timezone, log)
+	a.moderation = moderation.NewService(db, a.specialists, auth.NewUserRepo(db), notifier, cfg.Timezone)
+	a.verify = verification.NewService(db, a.specialists, notifier, cfg.UploadDir, cfg.Timezone)
 	return a
 }
 
@@ -114,6 +123,9 @@ func (a *app) router() http.Handler {
 			specialists := specialist.NewHandler(a.specialists, a.events, a.log)
 			subs := subscription.NewHandler(a.subs, a.specialists.Repo(), a.log)
 			statsH := stats.NewHandler(a.stats, a.specialists.Repo(), a.log)
+			reviews := review.NewHandler(a.reviews, a.log)
+			mod := moderation.NewHandler(a.moderation, a.log)
+			verify := verification.NewHandler(a.verify, a.log)
 			r.Get("/plans", subs.PlansHandler)
 			r.Route("/favourites", specialists.FavouriteRoutes)
 			schedules := availability.NewHandler(a.schedules, a.log)
@@ -121,8 +133,13 @@ func (a *app) router() http.Handler {
 			r.Route("/specialists", func(r chi.Router) {
 				specialists.CatalogueRoutes(r)
 				r.Get("/{id}/slots", schedules.Slots)
+				r.Post("/{id}/report", mod.ReportHandler)
+				reviews.SpecialistRoutes(r)
 			})
-			r.Route("/my/specialist", specialists.MyRoutes)
+			r.Route("/my/specialist", func(r chi.Router) {
+				specialists.MyRoutes(r)
+				verify.MyRoutes(r)
+			})
 			r.Route("/lessons", lessons.StudentRoutes)
 			r.Route("/teacher", func(r chi.Router) {
 				lessons.TeacherRoutes(r)
@@ -136,8 +153,12 @@ func (a *app) router() http.Handler {
 				r.Route("/specialists", func(r chi.Router) {
 					specialists.AdminRoutes(r)
 					subs.SpecialistRoutes(r)
+					verify.SpecialistAdminRoutes(r)
 				})
 				subs.AdminRoutes(r)
+				mod.AdminRoutes(r)
+				verify.AdminRoutes(r)
+				r.Route("/reviews", reviews.AdminRoutes)
 				r.Get("/dashboard", statsH.Dashboard)
 			})
 		})

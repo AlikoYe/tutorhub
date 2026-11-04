@@ -108,6 +108,31 @@ func (h *Handler) AdminRoutes(r chi.Router) {
 	r.Get("/{id}", h.adminGet)
 	r.Post("/{id}/approve", h.approve)
 	r.Post("/{id}/reject", h.reject)
+	r.Post("/{id}/block", h.block)
+	r.Post("/{id}/unblock", h.unblock)
+}
+
+func (h *Handler) block(w http.ResponseWriter, r *http.Request) {
+	id, err := httpx.PathID(r, "id")
+	if err != nil {
+		httpx.BadRequest(w, err.Error())
+		return
+	}
+	var req rejectRequest
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		httpx.BadRequest(w, err.Error())
+		return
+	}
+	h.respond(w, r)(h.svc.Block(r.Context(), id, req.Reason))
+}
+
+func (h *Handler) unblock(w http.ResponseWriter, r *http.Request) {
+	id, err := httpx.PathID(r, "id")
+	if err != nil {
+		httpx.BadRequest(w, err.Error())
+		return
+	}
+	h.respond(w, r)(h.svc.Unblock(r.Context(), id))
 }
 
 // ParseFilter reads catalogue filters from the query string.
@@ -146,6 +171,9 @@ func ParseFilter(r *http.Request) (Filter, error) {
 		return f, err
 	}
 	if f.FreeThisWeek, err = httpx.QueryBool(r, "free_this_week"); err != nil {
+		return f, err
+	}
+	if f.RatingMin, err = httpx.QueryOptionalInt(r, "rating_min", 1, 5); err != nil {
 		return f, err
 	}
 	if f.Query = q.Get("q"); utf8.RuneCountInString(f.Query) > 100 {

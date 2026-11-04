@@ -54,6 +54,7 @@ const links = [
   { to: '/teach/stats', icon: '📈', label: 'Статистика', hint: 'Показы, просмотры, заявки по неделям' },
   { to: '/teach/subscription', icon: '💳', label: 'Подписка', hint: 'Тариф, срок и оплата' },
   { to: '/teach/profile', icon: '✏️', label: 'Анкета', hint: 'Предметы, цены, фото' },
+  { to: '/teach/verification', icon: '🎓', label: 'Значок «Проверен»', hint: 'Загрузите диплом или сертификаты' },
 ]
 
 onMounted(load)
@@ -89,6 +90,7 @@ onMounted(load)
           Анкету вернули на доработку: {{ p.rejection_reason }}
         </p>
         <p v-if="p.status === 'draft'" class="hint">Заполните анкету и отправьте её на проверку.</p>
+        <p v-if="p.status === 'blocked'" class="banner error" style="border-radius: 8px">Профиль заблокирован: {{ p.block_reason }}</p>
         <p v-if="p.status === 'pending'" class="hint">Анкета на проверке. Мы напишем в Telegram, когда её одобрят.</p>
         <p v-if="p.status === 'live' && !p.listed" class="hint">Профиль не виден в поиске: нет активной подписки. Ссылка на профиль продолжает работать.</p>
 

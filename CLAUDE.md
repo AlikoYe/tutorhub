@@ -24,6 +24,9 @@ backend/
     lesson/             lesson requests, confirm/decline (HTTP + bot), cancel, students, worker jobs
     subscription/       plans/prices, admin activation/extension, founding period, expiry worker
     stats/              profile_events recorder, weekly teacher stats, admin dashboard
+    review/             reviews after a completed lesson (one per student per teacher), moderation
+    moderation/         profile reports, blocking users
+    verification/       verified badge: documents (admins only, UPLOAD_DIR/documents) + decision
     bot/                Telegram: Sender interface, Notifier, Links, command/callback dispatch;
                         every user-facing text is in bot/texts*.go
     notify/             background worker: runs registered jobs every REMINDER_INTERVAL
@@ -90,6 +93,15 @@ A package without business rules (e.g. `subject`) may skip the service.
 - `profile_events`: `view` (not owner/admin), `search_impression` (each card on a search page),
   `contact`, `request`. `search_log` keeps first-page searches for the dashboard's unmet demand.
   Stats are aggregated on read (weeks start on Monday in `TIMEZONE`).
+
+## Trust
+
+- Reviews need an effective `completed` lesson with the teacher; one per student per teacher
+  (UNIQUE), editable; hidden reviews leave the rating. `visibility.RatingSQL` feeds the card,
+  the `rating_min` filter and ranking (after "free this week").
+- Blocked users (`users.blocked`) get 403 on every authenticated endpoint (auth middleware).
+  Blocked profiles keep `block_reason`; unblock returns them to live (if ever approved) or draft.
+- Verification documents are never public: only `GET /api/admin/documents/{id}/file` (admins).
 
 ## Lesson rules
 

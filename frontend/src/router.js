@@ -12,10 +12,14 @@ const routes = [
   { path: '/teach/students', name: 'teach-students', component: () => import('@/views/teach/StudentsView.vue') },
   { path: '/teach/stats', name: 'teach-stats', component: () => import('@/views/teach/StatsView.vue') },
   { path: '/teach/subscription', name: 'teach-subscription', component: () => import('@/views/teach/SubscriptionView.vue') },
+  { path: '/teach/verification', name: 'teach-verification', component: () => import('@/views/teach/VerificationView.vue') },
   { path: '/admin', name: 'admin', component: () => import('@/views/AdminView.vue'), meta: { tab: 'admin' } },
   { path: '/admin/queue', name: 'admin-queue', component: () => import('@/views/admin/QueueView.vue') },
   { path: '/admin/dashboard', name: 'admin-dashboard', component: () => import('@/views/admin/DashboardView.vue') },
   { path: '/admin/subscriptions', name: 'admin-subscriptions', component: () => import('@/views/admin/SubscriptionsView.vue') },
+  { path: '/admin/reports', name: 'admin-reports', component: () => import('@/views/admin/ReportsView.vue') },
+  { path: '/admin/reviews', name: 'admin-reviews', component: () => import('@/views/admin/ReviewsView.vue') },
+  { path: '/admin/verifications', name: 'admin-verifications', component: () => import('@/views/admin/VerificationsView.vue') },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('@/views/NotFoundView.vue') },
 ]
 
