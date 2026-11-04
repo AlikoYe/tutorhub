@@ -32,17 +32,18 @@ func (r *Repo) DB() *pgxpool.Pool { return r.db }
 
 const cardColumns = `s.id, s.kind, s.display_name, s.photo_url, s.verified, ` + visibility.FeaturedSQL + `,
 	s.city, s.district, s.formats, s.languages, s.experience_years, s.trial_kind, s.trial_price,
-	(SELECT min(ss.price_kzt) FROM specialist_subjects ss WHERE ss.specialist_id = s.id)`
+	(SELECT min(ss.price_kzt) FROM specialist_subjects ss WHERE ss.specialist_id = s.id),
+	round(` + visibility.RatingSQL + `, 1)::float8, ` + visibility.ReviewsCountSQL
 
 const selectPrivate = `SELECT ` + cardColumns + `,
 	s.bio, s.education, s.lesson_minutes, s.cancel_hours, s.address, ` + visibility.ListedSQL + `,
 	s.status, s.rejection_reason, s.submitted_at, s.approved_at, s.lat, s.lng,
-	u.telegram_id, u.name, u.username
+	u.telegram_id, u.name, u.username, s.verification_status, s.verification_note, s.block_reason
 	FROM specialists s JOIN users u ON u.telegram_id = s.user_id`
 
 func cardDest(c *Card) []any {
 	return []any{&c.ID, &c.Kind, &c.DisplayName, &c.PhotoURL, &c.Verified, &c.Featured,
-		&c.City, &c.District, &c.Formats, &c.Languages, &c.ExperienceYears, &c.TrialKind, &c.TrialPrice, &c.MinPriceKZT}
+		&c.City, &c.District, &c.Formats, &c.Languages, &c.ExperienceYears, &c.TrialKind, &c.TrialPrice, &c.MinPriceKZT, &c.Rating, &c.ReviewsCount}
 }
 
 func scanPrivate(row pgx.Row) (Private, error) {
@@ -51,7 +52,7 @@ func scanPrivate(row pgx.Row) (Private, error) {
 	dest := append(cardDest(&p.Card),
 		&p.Bio, &p.Education, &p.LessonMinutes, &p.CancelHours, &address, &p.Listed,
 		&p.Status, &p.RejectionReason, &p.SubmittedAt, &p.ApprovedAt, &p.Lat, &p.Lng,
-		&p.Owner.TelegramID, &p.Owner.Name, &p.Owner.Username)
+		&p.Owner.TelegramID, &p.Owner.Name, &p.Owner.Username, &p.VerificationStatus, &p.VerificationNote, &p.BlockReason)
 	if err := row.Scan(dest...); err != nil {
 		return Private{}, err
 	}
@@ -371,6 +372,28 @@ func (r *Repo) Favourites(ctx context.Context, userID int64) ([]Card, error) {
 	return out, nil
 }
 
+// Block blocks a profile from any status with a reason the owner sees.
+func (r *Repo) Block(ctx context.Context, id int64, reason string) error {
+	return r.transition(ctx, r.db, id, []string{"draft", "pending", "live", "hidden"}, "blocked", "block_reason = $3", reason)
+}
+
+// Unblock returns a blocked profile to live (if it was ever approved) or draft.
+func (r *Repo) Unblock(ctx context.Context, id int64) error {
+	tag, err := r.db.Exec(ctx, `UPDATE specialists SET block_reason = '', updated_at = now(),
+		status = CASE WHEN approved_at IS NULL THEN 'draft' ELSE 'live' END
+		WHERE id = $1 AND status = 'blocked'`, id)
+	if err != nil {
+		return fmt.Errorf("unblock: %w", err)
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+	if _, err := r.Get(ctx, id); err != nil {
+		return err
+	}
+	return ErrInvalidStatus
+}
+
 // IDByUser returns the id of the user's own profile.
 func (r *Repo) IDByUser(ctx context.Context, userID int64) (int64, error) {
 	var id int64
@@ -398,6 +421,7 @@ type Filter struct {
 	Kind, City, District, Language, Format, Level, Query string
 	SubjectID                                            int64
 	PriceMin, PriceMax                                   *int
+	RatingMin                                            *int
 	VerifiedOnly, FreeThisWeek                           bool
 	Limit, Offset                                        int
 }
@@ -437,6 +461,9 @@ func (r *Repo) Search(ctx context.Context, f Filter) (Page, error) {
 	}
 	if f.FreeThisWeek {
 		where = append(where, r.free)
+	}
+	if f.RatingMin != nil {
+		where = append(where, visibility.RatingSQL+" >= "+arg(*f.RatingMin))
 	}
 	// Subject, level and price must all match the same offer.
 	var offer []string

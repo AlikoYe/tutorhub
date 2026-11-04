@@ -22,21 +22,32 @@ func NewUserRepo(db *pgxpool.Pool) *UserRepo {
 	return &UserRepo{db: db}
 }
 
-// Upsert inserts the user or refreshes their name, username and language, and returns their role.
-func (r *UserRepo) Upsert(ctx context.Context, u User) (string, error) {
+// Upsert inserts the user or refreshes their name, username and language, and returns their
+// role and blocked flag.
+func (r *UserRepo) Upsert(ctx context.Context, u User) (string, bool, error) {
 	var role string
+	var blocked bool
 	err := r.db.QueryRow(ctx, `
 		INSERT INTO users (telegram_id, name, username, language_code)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (telegram_id) DO UPDATE
 		SET name = EXCLUDED.name, username = EXCLUDED.username,
 		    language_code = COALESCE(EXCLUDED.language_code, users.language_code), updated_at = now()
-		RETURNING role`,
-		u.ID, u.DisplayName(), nullable(u.Username), nullable(u.LanguageCode)).Scan(&role)
+		RETURNING role, blocked`,
+		u.ID, u.DisplayName(), nullable(u.Username), nullable(u.LanguageCode)).Scan(&role, &blocked)
 	if err != nil {
-		return "", fmt.Errorf("upsert user: %w", err)
+		return "", false, fmt.Errorf("upsert user: %w", err)
 	}
-	return role, nil
+	return role, blocked, nil
+}
+
+// SetBlocked blocks or unblocks a user; false when the user does not exist. Admins cannot be blocked.
+func (r *UserRepo) SetBlocked(ctx context.Context, telegramID int64, blocked bool) (bool, error) {
+	tag, err := r.db.Exec(ctx, `UPDATE users SET blocked = $2, updated_at = now() WHERE telegram_id = $1 AND role <> 'admin'`, telegramID, blocked)
+	if err != nil {
+		return false, fmt.Errorf("set blocked: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 // EnsureAdmins creates or promotes the given Telegram ids to role admin.

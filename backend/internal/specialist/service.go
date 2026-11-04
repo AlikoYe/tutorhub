@@ -319,6 +319,26 @@ func (s *Service) Reject(ctx context.Context, id int64, reason string) (Private,
 	return p, nil
 }
 
+// Block blocks a profile (hidden from everyone but the owner and admins).
+func (s *Service) Block(ctx context.Context, id int64, reason string) (Private, error) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" || utf8.RuneCountInString(reason) > 500 {
+		return Private{}, invalid("reason is required (at most 500 characters)")
+	}
+	if err := s.repo.Block(ctx, id, reason); err != nil {
+		return Private{}, err
+	}
+	return s.AdminGet(ctx, id)
+}
+
+// Unblock restores a blocked profile.
+func (s *Service) Unblock(ctx context.Context, id int64) (Private, error) {
+	if err := s.repo.Unblock(ctx, id); err != nil {
+		return Private{}, err
+	}
+	return s.AdminGet(ctx, id)
+}
+
 // EndOfDay is the first instant after calendar day d in loc (plans end at local midnight).
 func EndOfDay(d time.Time, loc *time.Location) time.Time {
 	return time.Date(d.Year(), d.Month(), d.Day()+1, 0, 0, 0, 0, loc)

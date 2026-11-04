@@ -24,20 +24,21 @@ var echoUser = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
 // fakeUsers records upserts and returns a fixed role or error.
 type fakeUsers struct {
-	role  string
-	err   error
-	saved []User
+	role    string
+	blocked bool
+	err     error
+	saved   []User
 }
 
-func (f *fakeUsers) Upsert(_ context.Context, u User) (string, error) {
+func (f *fakeUsers) Upsert(_ context.Context, u User) (string, bool, error) {
 	f.saved = append(f.saved, u)
 	if f.err != nil {
-		return "", f.err
+		return "", false, f.err
 	}
 	if f.role == "" {
-		return RoleUser, nil
+		return RoleUser, f.blocked, nil
 	}
-	return f.role, nil
+	return f.role, f.blocked, nil
 }
 
 func serve(t *testing.T, opts Options, authHeader string) *httptest.ResponseRecorder {
@@ -188,5 +189,12 @@ func TestRequireAdmin(t *testing.T) {
 	RequireAdmin(ok).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("no user: status %d, want 401", rec.Code)
+	}
+}
+
+func TestMiddleware_BlockedUserIs403(t *testing.T) {
+	rec := serve(t, Options{AppEnv: "dev", Users: &fakeUsers{blocked: true}}, "dev 7")
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", rec.Code)
 	}
 }

@@ -66,6 +66,8 @@ type Card struct {
 	TrialKind       string   `json:"trial_kind"`
 	TrialPrice      *int     `json:"trial_price"`
 	MinPriceKZT     *int     `json:"min_price_kzt"`
+	Rating          *float64 `json:"rating"` // average of published reviews, one decimal
+	ReviewsCount    int      `json:"reviews_count"`
 	Subjects        []Offer  `json:"subjects"`
 }
 
@@ -111,6 +113,10 @@ type Private struct {
 	Subscription    *Subscription `json:"subscription"` // running now, or the latest one
 	PersonalLink    *string       `json:"personal_link"`
 	Owner           Owner         `json:"owner"`
+
+	VerificationStatus string `json:"verification_status"` // none, requested, verified, rejected
+	VerificationNote   string `json:"verification_note"`
+	BlockReason        string `json:"block_reason"`
 }
 
 // Summary is the user's own profile in /me.
@@ -284,4 +290,11 @@ func Missing(p Private) []string {
 		m = append(m, "district")
 	}
 	return m
+}
+
+// SpecialistRef is a short reference used by other modules' responses.
+type SpecialistRef struct {
+	ID          int64   `json:"id"`
+	DisplayName string  `json:"display_name"`
+	PhotoURL    *string `json:"photo_url"`
 }
