@@ -1,6 +1,6 @@
 -- Dev data: 8 demo teachers in Almaty (users 1001-1008), all live with a running plan.
 -- Usage: psql -v admin_id=<telegram_id> ... < dev.sql   (make seed ADMIN=<id>)
--- Re-running replaces the demo profiles.
+-- Re-running replaces the demo profiles (and their lessons and reviews). Needs every migration applied.
 \set ON_ERROR_STOP on
 BEGIN;
 
@@ -18,6 +18,8 @@ INSERT INTO users (telegram_id, name, username) VALUES
     (1008, 'Ольга Петрова', 'olga_chem')
 ON CONFLICT (telegram_id) DO NOTHING;
 
+DELETE FROM reviews WHERE specialist_id IN (SELECT id FROM specialists WHERE user_id BETWEEN 1001 AND 1008);
+DELETE FROM lessons WHERE specialist_id IN (SELECT id FROM specialists WHERE user_id BETWEEN 1001 AND 1008);
 DELETE FROM specialists WHERE user_id BETWEEN 1001 AND 1008;
 
 INSERT INTO specialists (user_id, kind, status, display_name, bio, education, experience_years, verified,
@@ -59,5 +61,33 @@ INSERT INTO availability_rules (specialist_id, weekday, starts_at, ends_at)
 SELECT s.id, wd, '15:00'::time, '21:00'::time FROM specialists s, generate_series(1, 5) wd WHERE s.user_id BETWEEN 1001 AND 1008
 UNION ALL
 SELECT s.id, 6, '10:00'::time, '14:00'::time FROM specialists s WHERE s.user_id BETWEEN 1001 AND 1008;
+
+-- Past lessons and reviews from demo students 2001-2003.
+INSERT INTO users (telegram_id, name, username) VALUES
+    (2001, 'Алия Нурланова', NULL), (2002, 'Данияр Касымов', NULL), (2003, 'Мария Ким', NULL)
+ON CONFLICT (telegram_id) DO NOTHING;
+DELETE FROM reviews WHERE student_id BETWEEN 2001 AND 2003;
+DELETE FROM lessons WHERE student_id BETWEEN 2001 AND 2003;
+
+INSERT INTO lessons (specialist_id, student_id, subject_id, during, status, price_kzt)
+SELECT s.id, x.student, ss.subject_id,
+       tstzrange(date_trunc('hour', now()) - make_interval(days => x.days_ago), date_trunc('hour', now()) - make_interval(days => x.days_ago) + interval '1 hour', '[)'),
+       'completed', ss.price_kzt
+FROM (VALUES (1001, 2001, 10), (1001, 2002, 12), (1001, 2003, 14), (1003, 2001, 20), (1003, 2003, 9), (1004, 2002, 5)) AS x(user_id, student, days_ago)
+JOIN specialists s ON s.user_id = x.user_id
+JOIN LATERAL (SELECT subject_id, price_kzt FROM specialist_subjects WHERE specialist_id = s.id ORDER BY subject_id LIMIT 1) ss ON true;
+
+INSERT INTO reviews (specialist_id, student_id, lesson_id, rating, text)
+SELECT l.specialist_id, l.student_id, l.id, x.rating, x.text
+FROM (VALUES
+    (1001, 2001, 5, 'Сын поднял математику с 18 до 31 балла за два месяца. Объясняет очень понятно.'),
+    (1001, 2002, 5, 'Лучший репетитор по ЕНТ, всё по делу.'),
+    (1001, 2003, 4, 'Хорошо, но иногда задерживается на пару минут.'),
+    (1003, 2001, 5, 'Got 7.5 on IELTS thanks to Anna!'),
+    (1003, 2003, 5, 'Отличная подготовка к speaking.'),
+    (1004, 2002, 4, 'Дочке нравится, занимается с удовольствием.')
+) AS x(user_id, student, rating, text)
+JOIN specialists s ON s.user_id = x.user_id
+JOIN lessons l ON l.specialist_id = s.id AND l.student_id = x.student;
 
 COMMIT;

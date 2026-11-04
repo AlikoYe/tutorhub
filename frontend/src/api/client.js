@@ -53,6 +53,19 @@ export async function request(method, path, { body, query, form } = {}) {
   return data
 }
 
+// fetchBlob downloads a protected file (e.g. an admin-only document) as a Blob.
+export async function fetchBlob(path) {
+  const headers = {}
+  const auth = authHeader()
+  if (auth) headers.Authorization = auth
+  const res = await fetch(`/api${path}`, { headers })
+  if (!res.ok) {
+    const data = await res.json().catch(() => null)
+    throw new ApiError(res.status, data?.error || 'internal', data?.message || `HTTP ${res.status}`)
+  }
+  return res.blob()
+}
+
 export const api = {
   get: (path, query) => request('GET', path, { query }),
   post: (path, body) => request('POST', path, { body }),

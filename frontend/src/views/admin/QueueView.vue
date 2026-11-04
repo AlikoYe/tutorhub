@@ -33,6 +33,36 @@ async function load() {
   }
 }
 
+async function block(p) {
+  const reason = window.prompt('Причина блокировки (увидит преподаватель)')
+  if (!reason) return
+  try {
+    await api.post(`/admin/specialists/${p.id}/block`, { reason })
+    load()
+  } catch (e) {
+    alertDialog(e.message)
+  }
+}
+
+async function unblock(p) {
+  try {
+    await api.post(`/admin/specialists/${p.id}/unblock`)
+    load()
+  } catch (e) {
+    alertDialog(e.message)
+  }
+}
+
+async function blockUser(p) {
+  if (!window.confirm(`Заблокировать пользователя ${p.owner.name}? Он не сможет пользоваться приложением.`)) return
+  try {
+    await api.post(`/admin/users/${p.owner.telegram_id}/block`)
+    alertDialog('Пользователь заблокирован')
+  } catch (e) {
+    alertDialog(e.message)
+  }
+}
+
 async function approve(p) {
   try {
     const body = { plan: decision.plan }
@@ -104,6 +134,12 @@ onMounted(load)
           <button class="btn danger block" :disabled="!decision.reason.trim()" @click="reject(p)">❌ Вернуть на доработку</button>
         </template>
         <AdminSubscriptionPanel v-else :specialist-id="p.id" />
+        <p v-if="p.status === 'blocked'" class="error-text">Заблокирован: {{ p.block_reason }}</p>
+        <div class="row wrap">
+          <button v-if="p.status !== 'blocked'" class="btn secondary small" @click="block(p)">⛔ Заблокировать профиль</button>
+          <button v-else class="btn secondary small" @click="unblock(p)">Разблокировать профиль</button>
+          <button class="btn secondary small" @click="blockUser(p)">Заблокировать пользователя</button>
+        </div>
       </div>
     </div>
   </AsyncState>

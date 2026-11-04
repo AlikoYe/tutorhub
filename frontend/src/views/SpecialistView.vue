@@ -8,6 +8,9 @@ import { t, levels, formats, languages, kinds, formatPrice } from '@/i18n'
 import Avatar from '@/components/Avatar.vue'
 import AsyncState from '@/components/AsyncState.vue'
 import BookingPanel from '@/components/BookingPanel.vue'
+import ReviewsSection from '@/components/ReviewsSection.vue'
+import Stars from '@/components/Stars.vue'
+import { confirmDialog } from '@/telegram'
 import { store } from '@/store'
 
 const props = defineProps({ id: { type: String, required: true } })
@@ -43,6 +46,22 @@ async function toggleFavourite() {
   }
 }
 
+const reasons = { fake: 'Фейковый профиль', inappropriate: 'Неприемлемое содержание', spam: 'Спам', no_show: 'Не пришёл на урок', other: 'Другое' }
+const reporting = ref(false)
+const reportReason = ref('fake')
+const reportText = ref('')
+
+async function report() {
+  if (!(await confirmDialog('Отправить жалобу администраторам?'))) return
+  try {
+    await api.post(`/specialists/${p.value.id}/report`, { reason: reportReason.value, text: reportText.value })
+    reporting.value = false
+    alertDialog('Спасибо! Мы проверим профиль.')
+  } catch (e) {
+    alertDialog(e.message)
+  }
+}
+
 async function contact() {
   try {
     const { telegram_url } = await api.post(`/specialists/${p.value.id}/contact`)
@@ -68,6 +87,7 @@ watch(() => props.id, load)
           <span v-if="p.verified" class="badge ok">✓ {{ t('verified') }}</span>
           <span v-if="p.experience_years" class="badge">{{ p.experience_years }} {{ t('years') }}</span>
         </div>
+        <div v-if="p.rating" style="margin-top: 6px"><Stars :value="p.rating" :count="p.reviews_count" /></div>
         <p v-if="!p.listed" class="hint">{{ t('notListed') }}</p>
         <div v-if="store.me && p.id !== store.me.specialist?.id" class="row" style="justify-content: center; margin-top: 10px">
           <button class="btn secondary small" @click="contact">💬 Написать в Telegram</button>
@@ -111,6 +131,22 @@ watch(() => props.id, load)
       <div v-if="p.education" class="card">
         <h3 style="margin-top: 0">{{ t('education') }}</h3>
         <p class="pre">{{ p.education }}</p>
+      </div>
+
+      <ReviewsSection :specialist-id="p.id" :can-act="Boolean(store.me && p.id !== store.me.specialist?.id)" @changed="load" />
+
+      <div v-if="store.me && p.id !== store.me.specialist?.id" style="text-align: center">
+        <button v-if="!reporting" class="btn secondary small" @click="reporting = true">🚩 Пожаловаться</button>
+        <div v-else class="card stack" style="text-align: left">
+          <select v-model="reportReason">
+            <option v-for="(label, r) in reasons" :key="r" :value="r">{{ label }}</option>
+          </select>
+          <textarea v-model="reportText" maxlength="1000" rows="2" placeholder="Подробности (необязательно)" />
+          <div class="row">
+            <button class="btn danger small" @click="report">Отправить</button>
+            <button class="btn secondary small" @click="reporting = false">Отмена</button>
+          </div>
+        </div>
       </div>
     </template>
   </AsyncState>
