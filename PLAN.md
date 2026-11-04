@@ -183,4 +183,4 @@ After M5: online subscription payments, map view, recurring lessons.
 - [x] M2 — Availability and lessons (PR #3)
 - [x] M3 — Subscriptions and statistics (PR #4)
 - [x] M4 — Trust (PR #5)
-- [ ] M5 — Growth
+- [x] M5 — Growth (PR #6)

@@ -1,6 +1,7 @@
 // App-wide state: the current user, the subject taxonomy and vocabularies.
 import { reactive } from 'vue'
 import { api } from '@/api/client'
+import { placeName } from '@/i18n'
 
 export const store = reactive({
   me: null,
@@ -35,9 +36,9 @@ export async function loadMeta() {
 
 export function districtName(city, slug) {
   const c = store.meta?.cities.find((x) => x.slug === city)
-  return c?.districts.find((d) => d.slug === slug)?.name_ru || ''
+  return placeName(c?.districts.find((d) => d.slug === slug))
 }
 
 export function cityName(slug) {
-  return store.meta?.cities.find((x) => x.slug === slug)?.name_ru || slug
+  return placeName(store.meta?.cities.find((x) => x.slug === slug)) || slug
 }

@@ -24,7 +24,7 @@ async function load() {
 }
 
 async function cancel(l) {
-  if (!(await confirmDialog('Отменить урок?'))) return
+  if (!(await confirmDialog(t('cancelLessonConfirm')))) return
   try {
     await api.post(`/lessons/${l.id}/cancel`, {})
     haptic('success')
@@ -45,16 +45,16 @@ onMounted(load)
 <template>
   <h1>{{ t('tabLessons') }}</h1>
   <div class="row" style="margin-bottom: 10px">
-    <button class="chip" :class="{ on: scope === 'upcoming' }" @click="setScope('upcoming')">Предстоящие</button>
-    <button class="chip" :class="{ on: scope === 'past' }" @click="setScope('past')">Прошедшие</button>
+    <button class="chip" :class="{ on: scope === 'upcoming' }" @click="setScope('upcoming')">{{ t('upcoming') }}</button>
+    <button class="chip" :class="{ on: scope === 'past' }" @click="setScope('past')">{{ t('past') }}</button>
   </div>
   <AsyncState :loading="loading" :error="error" @retry="load">
     <div v-if="!items.length" class="card empty">
-      <p>Здесь будут ваши уроки.</p>
-      <router-link to="/" class="btn">Найти преподавателя</router-link>
+      <p>{{ t('lessonsEmpty') }}</p>
+      <router-link to="/" class="btn">{{ t('findTeacher') }}</router-link>
     </div>
     <LessonCard v-for="l in items" :key="l.id" :l="l">
-      <button v-if="l.can_cancel" class="btn secondary small" @click="cancel(l)">Отменить</button>
+      <button v-if="l.can_cancel" class="btn secondary small" @click="cancel(l)">{{ t('cancelLesson') }}</button>
     </LessonCard>
   </AsyncState>
 </template>

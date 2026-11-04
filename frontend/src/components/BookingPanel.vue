@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api/client'
-import { formatPrice, formatTime, dayLabel } from '@/i18n'
+import { t, formatPrice, formatTime, dayLabel, subjectName } from '@/i18n'
 import { haptic, alertDialog, useMainButton } from '@/telegram'
 
 const props = defineProps({ specialist: { type: Object, required: true } })
@@ -53,7 +53,7 @@ async function book() {
       note: note.value,
     })
     haptic('success')
-    alertDialog('Заявка отправлена! Преподаватель получит её в Telegram и ответит.')
+    alertDialog(t('requestSent'))
     router.push('/lessons')
   } catch (e) {
     haptic('error')
@@ -67,7 +67,7 @@ async function book() {
 const { native } = useMainButton(
   () => ({
     visible: Boolean(picked.value),
-    text: picked.value ? `Записаться на ${formatTime(picked.value.starts_at)}` : '',
+    text: picked.value ? t('bookAt', { time: formatTime(picked.value.starts_at) }) : '',
     loading: sending.value,
   }),
   book,
@@ -79,13 +79,13 @@ onMounted(load)
 
 <template>
   <div class="card">
-    <h3 style="margin-top: 0">Записаться на урок</h3>
+    <h3 style="margin-top: 0">{{ t('book') }}</h3>
     <select v-if="specialist.subjects.length > 1" v-model.number="subjectId" style="margin-bottom: 10px">
       <option v-for="o in specialist.subjects" :key="o.subject_id" :value="o.subject_id">
-        {{ o.name_ru }} — {{ formatPrice(o.price_kzt) }}, {{ o.lesson_minutes }} мин
+        {{ subjectName(o) }} — {{ formatPrice(o.price_kzt) }}, {{ o.lesson_minutes }} {{ t('min') }}
       </option>
     </select>
-    <div v-if="loading" class="hint">Загрузка расписания…</div>
+    <div v-if="loading" class="hint">{{ t('scheduleLoading') }}</div>
     <template v-else-if="slots">
       <div class="days">
         <button
@@ -110,17 +110,17 @@ onMounted(load)
           {{ formatTime(s.starts_at) }}
         </button>
       </div>
-      <p v-else class="hint">Нет свободного времени в ближайшие две недели.</p>
+      <p v-else class="hint">{{ t('noSlots') }}</p>
     </template>
 
     <template v-if="picked">
       <label v-if="specialist.trial_kind !== 'none'" class="row" style="margin-top: 10px">
         <input v-model="trial" type="checkbox" style="width: auto" />
-        Пробный урок ({{ specialist.trial_kind === 'free' ? 'бесплатно' : formatPrice(specialist.trial_price) }})
+        {{ t('trialLesson') }} ({{ specialist.trial_kind === 'free' ? t('free') : formatPrice(specialist.trial_price) }})
       </label>
-      <textarea v-model="note" maxlength="500" rows="2" placeholder="Сообщение преподавателю: класс, цель, уровень" style="margin-top: 8px" />
-      <p class="hint">Стоимость: {{ price ? formatPrice(price) : 'бесплатно' }}. Оплата напрямую преподавателю.</p>
-      <button v-if="!native" class="btn block" :disabled="sending" @click="book">Записаться на {{ formatTime(picked.starts_at) }}</button>
+      <textarea v-model="note" maxlength="500" rows="2" :placeholder="t('noteToTeacher')" style="margin-top: 8px" />
+      <p class="hint">{{ t('priceNote', { price: price ? formatPrice(price) : t('free') }) }}</p>
+      <button v-if="!native" class="btn block" :disabled="sending" @click="book">{{ t('bookAt', { time: formatTime(picked.starts_at) }) }}</button>
     </template>
     <p v-if="error" class="error-text">{{ error }}</p>
   </div>

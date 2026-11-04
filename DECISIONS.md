@@ -44,3 +44,9 @@ Choices made while building unattended. One line each: what and why.
 - M4: blocking a user blocks every API call (403) but leaves their data; admins cannot be blocked. Blocking a profile is separate and carries a reason the owner sees.
 - M4: verification documents are PDF/JPEG/PNG (sniffed), at most 5 per teacher, 10 MB each, stored under UPLOAD_DIR/documents with random names and served only to admins with `Cache-Control: private, no-store`.
 - M4: every authenticated operation in docs/api.yaml now lists 403, because a blocked user gets 403 everywhere.
+- M5: public website URLs are `/t/{id}` (teacher) and `/c/{city}/{subject}` (subject + city) so they never collide with Mini App routes; Caddy proxies them to the API, which renders them with html/template (no JS framework, fast first paint for SEO).
+- M5: languages on the public site use `?lang=kk|en` (Russian has no parameter) with hreflang alternates and a canonical per language; empty subject pages and unlisted teachers are `noindex`; hidden/blocked/draft teachers are 404.
+- M5: public teacher pages never show the exact address; the "book" button is the personal bot link t.me/<bot>?start=t_<id> (or the Mini App URL without BOT_USERNAME). Anonymous page views count as profile views.
+- M5: JSON-LD uses schema.org Person (Google does not support aggregateRating on Person, so the rating is shown in HTML only).
+- M5: the Mini App's student-facing screens (catalogue, profile, booking, lessons, favourites, reviews) are translated to Kazakh and English; teacher and admin screens and bot messages stay Russian for now (listed as unfinished in STATUS.md).
+- M5: share links use Telegram's share sheet (t.me/share/url) with the public page URL (same domain as the Mini App) or the teacher's personal bot link.
