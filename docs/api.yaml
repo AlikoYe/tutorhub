@@ -930,7 +930,7 @@ components:
         education: { type: string }
         lesson_minutes: { type: integer, description: Default lesson length. }
         cancel_hours: { type: integer, description: Students may cancel a confirmed lesson until this many hours before it. }
-        address: { type: [string, "null"], description: Exact address; for the owner, admins and students with a confirmed lesson. }
+        address: { type: [string, "null"], description: "Exact address; for the owner, admins and students with a confirmed lesson." }
         listed: { type: boolean, description: Shown in search right now. }
 
     SpecialistPublic:
