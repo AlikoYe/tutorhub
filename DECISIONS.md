@@ -30,3 +30,11 @@ Choices made while building unattended. One line each: what and why.
 - M2: confirmed lessons become `completed` by the worker after they end; reads report `completed` immediately (effective status), so reviews (M4) can rely on it.
 - M2: reminders go to both the student and the teacher once, REMINDER_BEFORE (default 2 h) before a confirmed lesson.
 - M2: favourites and the "contact" button are deferred to M3 because "contact" is counted as a lead in profile_events (M3).
+- M3: subscription extension rule: `months` starts when the running/future subscription of the same plan ends (renewals stack), `ends_on` starts now (upgrades such as featured take effect immediately). Admins can end a subscription (a future one is deleted).
+- M3: "set founding period" is one admin action that moves the end of every running founding plan to a date (POST /admin/founding-period).
+- M3: expiry reminders consider only a teacher's last subscription (a renewed teacher is not reminded) and the "you left search" notice is sent only for plans that ended less than 3 days ago, so the first deploy does not message old accounts.
+- M3: hiding on expiry needs no status change — the visibility rule already drops teachers without a running plan; the worker only notifies.
+- M3: statistics are aggregated on read from append-only profile_events (indexed by specialist and time) instead of a daily rollup table; enough for MVP volumes, a rollup can come later.
+- M3: views by the owner and by admins are not counted; impressions are counted for every card on any search page; searches are logged once per query (first page) for the dashboard.
+- M3: "unmet demand" = subjects searched in the last 30 days with fewer than 3 listed specialists, fewest first.
+- M3: favourites and the contact button were added here (contact = lead event); the contact link is https://t.me/<username> or tg://user?id=<id>.

@@ -41,6 +41,12 @@ type Config struct {
 	Timezone *time.Location
 	// UploadDir is where teacher photos and documents are stored.
 	UploadDir string
+	// Prices of the paid plans in KZT per month (configuration, not code).
+	PriceBasicKZT    int
+	PriceFeaturedKZT int
+	// PaymentInstructions tells teachers how to pay (manual Kaspi transfer in the MVP).
+	PaymentInstructions string
+
 	// TrialDays is the default length of the trial plan started when an admin approves a profile.
 	TrialDays int
 
@@ -101,6 +107,14 @@ func Load() (Config, error) {
 		errs = append(errs, err)
 	}
 	if cfg.ReminderBefore, err = durationEnv("REMINDER_BEFORE", 2*time.Hour); err != nil {
+		errs = append(errs, err)
+	}
+	cfg.PaymentInstructions = getenv("PAYMENT_INSTRUCTIONS",
+		"Переведите оплату через Kaspi по номеру, который пришлёт администратор, с комментарием «TutorHub» и вашим именем. После перевода напишите администратору — подписка активируется в течение дня.")
+	if cfg.PriceBasicKZT, err = positiveIntEnv("PRICE_BASIC_KZT", 2990); err != nil {
+		errs = append(errs, err)
+	}
+	if cfg.PriceFeaturedKZT, err = positiveIntEnv("PRICE_FEATURED_KZT", 7990); err != nil {
 		errs = append(errs, err)
 	}
 	if cfg.TrialDays, err = positiveIntEnv("TRIAL_DAYS", 30); err != nil {

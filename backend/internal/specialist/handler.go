@@ -1,6 +1,7 @@
 package specialist
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -16,19 +17,79 @@ import (
 	"github.com/AlikoYe/tutorhub/backend/internal/visibility"
 )
 
-type Handler struct {
-	svc *Service
-	log *slog.Logger
+// Events records catalogue funnel events. Implemented by stats.Recorder.
+type Events interface {
+	Viewed(ctx context.Context, specialistID, userID int64)
+	Searched(ctx context.Context, userID int64, f Filter, page Page)
+	Record(ctx context.Context, specialistID int64, kind string, userID int64)
 }
 
-func NewHandler(svc *Service, log *slog.Logger) *Handler {
-	return &Handler{svc: svc, log: log}
+type Handler struct {
+	svc    *Service
+	events Events
+	log    *slog.Logger
+}
+
+func NewHandler(svc *Service, events Events, log *slog.Logger) *Handler {
+	return &Handler{svc: svc, events: events, log: log}
+}
+
+// FavouriteRoutes mounts under /api/favourites.
+func (h *Handler) FavouriteRoutes(r chi.Router) {
+	r.Get("/", h.favourites)
+	r.Put("/{id}", h.favourite(true))
+	r.Delete("/{id}", h.favourite(false))
+}
+
+func (h *Handler) favourites(w http.ResponseWriter, r *http.Request) {
+	u, _ := auth.CurrentUser(r)
+	items, err := h.svc.Favourites(r.Context(), u.ID)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, items)
+}
+
+func (h *Handler) favourite(on bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		u, _ := auth.CurrentUser(r)
+		id, err := httpx.PathID(r, "id")
+		if err != nil {
+			httpx.BadRequest(w, err.Error())
+			return
+		}
+		if err := h.svc.SetFavourite(r.Context(), u.ID, id, on); err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func (h *Handler) contact(w http.ResponseWriter, r *http.Request) {
+	id, err := httpx.PathID(r, "id")
+	if err != nil {
+		httpx.BadRequest(w, err.Error())
+		return
+	}
+	v := viewer(r)
+	link, p, err := h.svc.Contact(r.Context(), v, id)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if p.UserID != v.UserID && h.events != nil {
+		h.events.Record(r.Context(), id, "contact", v.UserID)
+	}
+	httpx.JSON(w, http.StatusOK, link)
 }
 
 // CatalogueRoutes mounts under /api/specialists.
 func (h *Handler) CatalogueRoutes(r chi.Router) {
 	r.Get("/", h.search)
 	r.Get("/{id}", h.profile)
+	r.Post("/{id}/contact", h.contact)
 }
 
 // MyRoutes mounts under /api/my/specialist.
@@ -117,6 +178,9 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	if h.events != nil {
+		h.events.Searched(r.Context(), viewer(r).UserID, f, page)
+	}
 	httpx.JSON(w, http.StatusOK, page)
 }
 
@@ -131,10 +195,15 @@ func (h *Handler) profile(w http.ResponseWriter, r *http.Request) {
 		httpx.BadRequest(w, err.Error())
 		return
 	}
-	p, err := h.svc.Profile(r.Context(), viewer(r), id)
+	v := viewer(r)
+	p, err := h.svc.Profile(r.Context(), v, id)
 	if err != nil {
 		h.fail(w, r, err)
 		return
+	}
+	// Owners and admins looking at a profile are not views.
+	if h.events != nil && p.UserID != v.UserID && !v.IsAdmin {
+		h.events.Viewed(r.Context(), id, v.UserID)
 	}
 	httpx.JSON(w, http.StatusOK, p)
 }

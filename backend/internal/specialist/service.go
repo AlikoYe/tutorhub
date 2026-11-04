@@ -3,6 +3,7 @@ package specialist
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -181,6 +182,11 @@ func (s *Service) Profile(ctx context.Context, v Viewer, id int64) (Public, erro
 		return Public{}, ErrNotFound
 	}
 	pub := p.Public
+	if v.UserID != 0 {
+		if pub.Favourite, err = s.repo.IsFavourite(ctx, v.UserID, id); err != nil {
+			return Public{}, err
+		}
+	}
 	if !own {
 		ok := false
 		if s.address != nil && v.UserID != 0 {
@@ -195,6 +201,43 @@ func (s *Service) Profile(ctx context.Context, v Viewer, id int64) (Public, erro
 		pub.Address = nil
 	}
 	return pub, nil
+}
+
+// SetFavourite adds or removes a favourite.
+func (s *Service) SetFavourite(ctx context.Context, userID, specialistID int64, on bool) error {
+	ok, err := s.repo.SetFavourite(ctx, userID, specialistID, on)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Service) Favourites(ctx context.Context, userID int64) ([]Card, error) {
+	return s.repo.Favourites(ctx, userID)
+}
+
+// ContactLink is where the "contact" button leads.
+type ContactLink struct {
+	TelegramURL string `json:"telegram_url"`
+}
+
+// Contact returns a link to the specialist's Telegram chat; the caller records the lead.
+func (s *Service) Contact(ctx context.Context, v Viewer, id int64) (ContactLink, Public, error) {
+	p, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return ContactLink{}, Public{}, err
+	}
+	if p.Status != visibility.Live && !v.IsAdmin && p.UserID != v.UserID {
+		return ContactLink{}, Public{}, ErrNotFound
+	}
+	link := ContactLink{TelegramURL: fmt.Sprintf("tg://user?id=%d", p.UserID)}
+	if p.Owner.Username != nil && *p.Owner.Username != "" {
+		link.TelegramURL = "https://t.me/" + *p.Owner.Username
+	}
+	return link, p.Public, nil
 }
 
 // Search runs a catalogue search.

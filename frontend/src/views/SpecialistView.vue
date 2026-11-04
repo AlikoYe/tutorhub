@@ -2,7 +2,7 @@
 import { onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api/client'
-import { useBackButton } from '@/telegram'
+import { useBackButton, openTelegramLink, haptic, alertDialog } from '@/telegram'
 import { loadMeta, districtName, cityName } from '@/store'
 import { t, levels, formats, languages, kinds, formatPrice } from '@/i18n'
 import Avatar from '@/components/Avatar.vue'
@@ -31,6 +31,27 @@ async function load() {
   }
 }
 
+async function toggleFavourite() {
+  const on = !p.value.favourite
+  try {
+    if (on) await api.put(`/favourites/${p.value.id}`)
+    else await api.del(`/favourites/${p.value.id}`)
+    p.value.favourite = on
+    haptic('light')
+  } catch (e) {
+    alertDialog(e.message)
+  }
+}
+
+async function contact() {
+  try {
+    const { telegram_url } = await api.post(`/specialists/${p.value.id}/contact`)
+    openTelegramLink(telegram_url)
+  } catch (e) {
+    alertDialog(e.message)
+  }
+}
+
 onMounted(load)
 watch(() => props.id, load)
 </script>
@@ -48,6 +69,10 @@ watch(() => props.id, load)
           <span v-if="p.experience_years" class="badge">{{ p.experience_years }} {{ t('years') }}</span>
         </div>
         <p v-if="!p.listed" class="hint">{{ t('notListed') }}</p>
+        <div v-if="store.me && p.id !== store.me.specialist?.id" class="row" style="justify-content: center; margin-top: 10px">
+          <button class="btn secondary small" @click="contact">💬 Написать в Telegram</button>
+          <button class="btn secondary small" @click="toggleFavourite">{{ p.favourite ? '★ В избранном' : '☆ В избранное' }}</button>
+        </div>
       </div>
 
       <div class="card">

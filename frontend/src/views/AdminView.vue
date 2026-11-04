@@ -2,7 +2,9 @@
 import { t } from '@/i18n'
 
 const sections = [
-  { to: '/admin/queue', icon: '🗂', label: 'Проверка анкет', hint: 'Новые профили преподавателей' },
+  { to: '/admin/dashboard', icon: '📊', label: 'Дашборд', hint: 'Преподаватели, поиски, заявки, спрос' },
+  { to: '/admin/queue', icon: '🗂', label: 'Анкеты', hint: 'Проверка и все профили по статусам' },
+  { to: '/admin/subscriptions', icon: '💳', label: 'Подписки', hint: 'Заканчиваются скоро, период «Основатель»' },
 ]
 </script>
 

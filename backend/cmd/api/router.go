@@ -19,7 +19,9 @@ import (
 	"github.com/AlikoYe/tutorhub/backend/internal/platform/config"
 	"github.com/AlikoYe/tutorhub/backend/internal/platform/httpx"
 	"github.com/AlikoYe/tutorhub/backend/internal/specialist"
+	"github.com/AlikoYe/tutorhub/backend/internal/stats"
 	"github.com/AlikoYe/tutorhub/backend/internal/subject"
+	"github.com/AlikoYe/tutorhub/backend/internal/subscription"
 )
 
 // app wires every domain service; shared by the HTTP router, the bot and the worker.
@@ -34,6 +36,9 @@ type app struct {
 	specialists *specialist.Service
 	schedules   *availability.Service
 	lessons     *lesson.Service
+	subs        *subscription.Service
+	events      *stats.Recorder
+	stats       *stats.Service
 }
 
 func newApp(cfg config.Config, log *slog.Logger, db *pgxpool.Pool, notifier *bot.Notifier) *app {
@@ -57,6 +62,16 @@ func newApp(cfg config.Config, log *slog.Logger, db *pgxpool.Pool, notifier *bot
 	a.schedules = availability.NewService(availability.NewRepo(db), a.specialists, cfg.Timezone)
 	a.lessons = lesson.NewService(lesson.NewRepo(db, cfg.Timezone), a.schedules, a.specialists.Repo(), notifier, cfg.HoldMinutes, cfg.Timezone, log)
 	a.specialists.SetAddressAccess(a.lessons)
+	a.events = stats.NewRecorder(db, log)
+	a.lessons.SetEvents(a.events)
+	a.stats = stats.NewService(db, cfg.Timezone)
+	a.subs = subscription.NewService(db, subscription.Plans{
+		Plans: []subscription.Plan{
+			{Plan: "basic", PriceKZT: cfg.PriceBasicKZT},
+			{Plan: "featured", PriceKZT: cfg.PriceFeaturedKZT},
+		},
+		PaymentInstructions: cfg.PaymentInstructions,
+	}, notifier, cfg.Timezone, log)
 	return a
 }
 
@@ -68,7 +83,9 @@ func (a *app) registerBot(b *bot.Bot) {
 
 // worker returns the background worker with every domain job.
 func (a *app) worker() *notify.Worker {
-	return notify.NewWorker(a.cfg.ReminderInterval, a.log, a.lessons.Jobs(a.cfg.ReminderBefore)...)
+	w := notify.NewWorker(a.cfg.ReminderInterval, a.log, a.lessons.Jobs(a.cfg.ReminderBefore)...)
+	w.Add(a.subs.Jobs()...)
+	return w
 }
 
 func (a *app) router() http.Handler {
@@ -94,7 +111,11 @@ func (a *app) router() http.Handler {
 			r.Get("/subjects", subject.ListHandler(a.subjects, a.log))
 			r.Get("/meta", func(w http.ResponseWriter, _ *http.Request) { httpx.JSON(w, http.StatusOK, geo.CurrentMeta()) })
 
-			specialists := specialist.NewHandler(a.specialists, a.log)
+			specialists := specialist.NewHandler(a.specialists, a.events, a.log)
+			subs := subscription.NewHandler(a.subs, a.specialists.Repo(), a.log)
+			statsH := stats.NewHandler(a.stats, a.specialists.Repo(), a.log)
+			r.Get("/plans", subs.PlansHandler)
+			r.Route("/favourites", specialists.FavouriteRoutes)
 			schedules := availability.NewHandler(a.schedules, a.log)
 			lessons := lesson.NewHandler(a.lessons, a.log)
 			r.Route("/specialists", func(r chi.Router) {
@@ -106,11 +127,18 @@ func (a *app) router() http.Handler {
 			r.Route("/teacher", func(r chi.Router) {
 				lessons.TeacherRoutes(r)
 				r.Route("/availability", schedules.TeacherRoutes)
+				r.Get("/subscription", subs.TeacherHandler)
+				r.Get("/stats", statsH.Teacher)
 			})
 
 			r.Route("/admin", func(r chi.Router) {
 				r.Use(auth.RequireAdmin)
-				r.Route("/specialists", specialists.AdminRoutes)
+				r.Route("/specialists", func(r chi.Router) {
+					specialists.AdminRoutes(r)
+					subs.SpecialistRoutes(r)
+				})
+				subs.AdminRoutes(r)
+				r.Get("/dashboard", statsH.Dashboard)
 			})
 		})
 	})

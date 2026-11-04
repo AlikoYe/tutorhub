@@ -51,6 +51,8 @@ const links = [
   { to: '/teach/lessons', icon: '📋', label: 'Заявки и уроки', hint: 'Подтверждайте заявки учеников' },
   { to: '/teach/schedule', icon: '🗓', label: 'Расписание', hint: 'Рабочие часы и дни отдыха' },
   { to: '/teach/students', icon: '👥', label: 'Ученики', hint: 'Все, кто записывался, и заметки' },
+  { to: '/teach/stats', icon: '📈', label: 'Статистика', hint: 'Показы, просмотры, заявки по неделям' },
+  { to: '/teach/subscription', icon: '💳', label: 'Подписка', hint: 'Тариф, срок и оплата' },
   { to: '/teach/profile', icon: '✏️', label: 'Анкета', hint: 'Предметы, цены, фото' },
 ]
 

@@ -10,8 +10,12 @@ const routes = [
   { path: '/teach/schedule', name: 'teach-schedule', component: () => import('@/views/teach/ScheduleView.vue') },
   { path: '/teach/lessons', name: 'teach-lessons', component: () => import('@/views/teach/TeacherLessonsView.vue') },
   { path: '/teach/students', name: 'teach-students', component: () => import('@/views/teach/StudentsView.vue') },
+  { path: '/teach/stats', name: 'teach-stats', component: () => import('@/views/teach/StatsView.vue') },
+  { path: '/teach/subscription', name: 'teach-subscription', component: () => import('@/views/teach/SubscriptionView.vue') },
   { path: '/admin', name: 'admin', component: () => import('@/views/AdminView.vue'), meta: { tab: 'admin' } },
   { path: '/admin/queue', name: 'admin-queue', component: () => import('@/views/admin/QueueView.vue') },
+  { path: '/admin/dashboard', name: 'admin-dashboard', component: () => import('@/views/admin/DashboardView.vue') },
+  { path: '/admin/subscriptions', name: 'admin-subscriptions', component: () => import('@/views/admin/SubscriptionsView.vue') },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('@/views/NotFoundView.vue') },
 ]
 
