@@ -114,3 +114,35 @@ export function formatDate(iso) {
 export function lastDay(iso) {
   return formatDate(new Date(new Date(iso).getTime() - 1000).toISOString())
 }
+
+export const lessonStatuses = {
+  pending: 'Ждёт ответа',
+  confirmed: 'Подтверждён',
+  declined: 'Отклонён',
+  cancelled: 'Отменён',
+  expired: 'Истёк',
+  completed: 'Проведён',
+}
+
+export const weekdaysShort = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']
+export const weekdaysLong = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота']
+
+const TZ = 'Asia/Almaty'
+
+export function formatTime(iso) {
+  return new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: TZ })
+}
+
+export function formatDay(iso) {
+  return new Date(iso).toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'long', timeZone: TZ })
+}
+
+export function formatLessonTime(l) {
+  return `${formatDay(l.starts_at)}, ${formatTime(l.starts_at)}–${formatTime(l.ends_at)}`
+}
+
+// dayLabel formats a YYYY-MM-DD date as "Пн 9".
+export function dayLabel(date) {
+  const d = new Date(`${date}T12:00:00+05:00`)
+  return `${weekdaysShort[d.getUTCDay()]} ${d.getUTCDate()}`
+}

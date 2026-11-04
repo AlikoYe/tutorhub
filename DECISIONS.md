@@ -22,3 +22,11 @@ Choices made while building unattended. One line each: what and why.
 - M1: subject, level and price filters must match the same subject offer (e.g. "ENT math under 5000" does not match a teacher whose cheap subject is something else).
 - M1: photos are public files under /api/files/photos (image tags cannot send auth headers); names are random so URLs are not guessable by id.
 - M1: search returns `{items, total}` (not a bare array) so the client can page.
+- M2: lesson starts snap to a 30-minute grid inside the teacher's windows and must be at least 1 hour ahead and at most 30 days ahead (simple, predictable slot lists).
+- M2: lesson length is per subject (nullable override on specialist_subjects, default the profile's lesson_minutes); the teacher's cancel rule is `cancel_hours` on the profile (default 12 h).
+- M2: weekday numbering follows Go/PostgreSQL DOW (0 = Sunday) to avoid conversions in SQL.
+- M2: "has free slots this week" (filter + ranking) is one SQL approximation: a non-closed window in the next 7 local days that is not fully covered by blocking lessons; exact slot lists come from GET /specialists/{id}/slots.
+- M2: a teacher whose subscription has ended can still be booked through their link (status live); only unlisted from search, matching the plan's "link still works for their own students".
+- M2: confirmed lessons become `completed` by the worker after they end; reads report `completed` immediately (effective status), so reviews (M4) can rely on it.
+- M2: reminders go to both the student and the teacher once, REMINDER_BEFORE (default 2 h) before a confirmed lesson.
+- M2: favourites and the "contact" button are deferred to M3 because "contact" is counted as a lead in profile_events (M3).

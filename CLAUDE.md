@@ -19,6 +19,9 @@ backend/
     geo/                cities/districts (Almaty) and fixed vocabularies (levels, formats, languages); /meta
     visibility/         THE listing rule + ranking SQL (live AND running subscription); use it, never re-type it
     specialist/         profiles: owner editor, submit, admin verification, photos, catalogue search
+    availability/       weekly template + days off, free-slot computation (pure, unit-tested)
+    lessonstatus/       THE blocking / effective-status SQL for lessons; use it, never re-type it
+    lesson/             lesson requests, confirm/decline (HTTP + bot), cancel, students, worker jobs
     bot/                Telegram: Sender interface, Notifier, Links, command/callback dispatch;
                         every user-facing text is in bot/texts*.go
     notify/             background worker: runs registered jobs every REMINDER_INTERVAL
@@ -75,6 +78,23 @@ A package without business rules (e.g. `subject`) may skip the service.
 - Photos live in `UPLOAD_DIR/photos`, served publicly at `/api/files/photos/{name}` (img tags send
   no auth header); each upload gets a new random name, so files are cached forever.
 - Prices are configuration, not code.
+
+## Lesson rules
+
+- Slots: start every 30 min inside a weekly window (`weekday` 0 = Sunday, `HH:MM`, 24:00 allowed),
+  last the subject's `lesson_minutes`, start >= now + 1 h and <= 30 days ahead, not on a day off.
+- New lessons are `pending` with `expires_at = min(now + HOLD_MINUTES, start)`. Teacher confirms ->
+  `confirmed`, declines -> `declined`; the worker flips overdue pending -> `expired` and ended
+  confirmed -> `completed`. Student cancels pending any time before the start, confirmed only until
+  `specialists.cancel_hours` before; the teacher cancels any upcoming lesson.
+- A lesson **blocks** time iff `lessonstatus.BlockingSQL`; every read reports `lessonstatus.EffectiveSQL`.
+  Exclusion constraints `lessons_no_specialist_overlap` / `lessons_no_student_overlap` cover
+  pending + confirmed rows.
+- **Create-lesson transaction** (`lesson.Repo.Insert`): lock `specialists` row then the student's
+  `users` row (always this order, FOR NO KEY UPDATE) -> `ExpireOverdueSQL` -> INSERT; map 23P01 to
+  409 `slot_taken` / `student_busy`.
+- Confirm/decline: `lesson.Service.Decide`, shared by HTTP and the bot callbacks `ls:c:<id>` / `ls:d:<id>`.
+- The student sees the teacher's address once a lesson with them is confirmed.
 
 ## Workflow
 

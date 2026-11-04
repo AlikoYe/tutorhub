@@ -54,4 +54,10 @@ SELECT s.id,
        now() - interval '1 day', now() + interval '60 days', 'dev seed'
 FROM specialists s WHERE s.user_id BETWEEN 1001 AND 1008;
 
+-- Weekdays 15:00-21:00 and Saturday 10:00-14:00 for everyone.
+INSERT INTO availability_rules (specialist_id, weekday, starts_at, ends_at)
+SELECT s.id, wd, '15:00'::time, '21:00'::time FROM specialists s, generate_series(1, 5) wd WHERE s.user_id BETWEEN 1001 AND 1008
+UNION ALL
+SELECT s.id, 6, '10:00'::time, '14:00'::time FROM specialists s WHERE s.user_id BETWEEN 1001 AND 1008;
+
 COMMIT;

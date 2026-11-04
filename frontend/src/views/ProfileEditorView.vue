@@ -26,6 +26,7 @@ const form = reactive({
   trial_kind: 'none',
   trial_price: null,
   lesson_minutes: 60,
+  cancel_hours: 12,
   subjects: [],
 })
 const profile = ref(null)
@@ -47,7 +48,13 @@ const trialKinds = { none: 'Нет', free: 'Бесплатный', paid: 'Пла
 function fill(p) {
   profile.value = p
   for (const k of Object.keys(form)) {
-    if (k === 'subjects') form.subjects = p.subjects.map((o) => ({ subject_id: o.subject_id, levels: [...o.levels], price_kzt: o.price_kzt }))
+    if (k === 'subjects')
+      form.subjects = p.subjects.map((o) => ({
+        subject_id: o.subject_id,
+        levels: [...o.levels],
+        price_kzt: o.price_kzt,
+        lesson_minutes: o.lesson_minutes === p.lesson_minutes ? null : o.lesson_minutes,
+      }))
     else if (p[k] !== undefined && p[k] !== null) form[k] = Array.isArray(p[k]) ? [...p[k]] : p[k]
   }
   if (p.address === null) form.address = ''
@@ -68,7 +75,7 @@ async function load() {
 
 function addSubject() {
   if (!addSubjectId.value) return
-  form.subjects.push({ subject_id: Number(addSubjectId.value), levels: [], price_kzt: 5000 })
+  form.subjects.push({ subject_id: Number(addSubjectId.value), levels: [], price_kzt: 5000, lesson_minutes: null })
   addSubjectId.value = ''
 }
 
@@ -159,6 +166,13 @@ onMounted(load)
           <span class="hint">Цена за урок, ₸</span>
           <input v-model="s.price_kzt" type="number" min="0" inputmode="numeric" style="max-width: 140px" />
         </label>
+        <label class="row" style="margin-top: 6px">
+          <span class="hint">Длительность</span>
+          <select v-model="s.lesson_minutes" style="max-width: 180px">
+            <option :value="null">как обычно ({{ form.lesson_minutes }} мин)</option>
+            <option v-for="m in [30, 45, 60, 75, 90, 120]" :key="m" :value="m">{{ m }} мин</option>
+          </select>
+        </label>
       </div>
       <div class="row">
         <select v-model="addSubjectId" class="grow">
@@ -186,6 +200,12 @@ onMounted(load)
         <span>Длительность урока</span>
         <select v-model.number="form.lesson_minutes">
           <option v-for="m in [30, 45, 60, 75, 90, 120]" :key="m" :value="m">{{ m }} мин</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Ученик может отменить подтверждённый урок не позже чем за</span>
+        <select v-model.number="form.cancel_hours">
+          <option v-for="h in [0, 2, 4, 6, 12, 24, 48]" :key="h" :value="h">{{ h }} ч</option>
         </select>
       </label>
       <div class="field"><span class="hint">Пробный урок</span><ChipSelect v-model="form.trial_kind" :options="trialKinds" /></div>
