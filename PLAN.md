@@ -175,3 +175,12 @@ After M5: online subscription payments, map view, recurring lessons.
 - Exact prices and founding-period length. Default: placeholders above, founding until a date
   the admin sets.
 - Cities at launch. Default: Almaty only; data model supports any city.
+
+## Progress
+
+- [x] M0 — Repo foundation (PR #1)
+- [x] M1 — Specialist profiles and catalogue (PR #2)
+- [x] M2 — Availability and lessons (PR #3)
+- [x] M3 — Subscriptions and statistics (PR #4)
+- [ ] M4 — Trust
+- [ ] M5 — Growth
