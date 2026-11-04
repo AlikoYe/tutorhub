@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: TutorHub API
-  version: 0.3.0
+  version: 0.4.0
   description: |
     Backend for the TutorHub Telegram Mini App: a catalogue of teachers, tutors and
     consultants in Kazakhstan (Almaty first).
@@ -33,6 +33,18 @@ info:
 
     Ranking: featured plan first, then those with free time in the next 7 days, then the most
     recently approved.
+
+    ## Subscriptions
+    Plans: `founding` (free, until a date admins set), `trial` (free, on approval), `basic` and
+    `featured` (paid monthly; prices from configuration, see `GET /plans`). Payment is a manual
+    Kaspi transfer; an admin then activates the plan. `featured` ranks first and shows a badge.
+    The worker reminds the teacher 7 days and 1 day before their last plan ends and tells them
+    when they leave search.
+
+    ## Statistics
+    Events per specialist: `view` (profile opened by someone else), `search_impression` (shown in
+    a search page), `contact` (`POST /specialists/{id}/contact`), `request` (lesson requested).
+    Weeks start on Monday in the app time zone.
 
     ## Availability and lessons
     A teacher sets a weekly template (`weekday` 0 = Sunday ... 6 = Saturday, `HH:MM` windows,
@@ -91,6 +103,10 @@ tags:
     description: Free slots and the student's lessons.
   - name: teacher
     description: The teacher's schedule, requests and students.
+  - name: subscriptions
+    description: Plans, prices and the teacher's subscription.
+  - name: stats
+    description: Teacher statistics and the admin dashboard.
   - name: admin
     description: Admin-only endpoints (users.role = admin).
 
@@ -557,6 +573,252 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /specialists/{id}/contact:
+    post:
+      tags: [catalogue]
+      operationId: contactSpecialist
+      summary: Get a link to the specialist's Telegram chat (counted as a lead)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200":
+          description: Where to send the user.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [telegram_url]
+                additionalProperties: false
+                properties:
+                  telegram_url: { type: string, example: "https://t.me/aigerim_math", description: "https://t.me/<username>, or tg://user?id=<id> without a username." }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /favourites:
+    get:
+      tags: [catalogue]
+      operationId: listFavourites
+      summary: The user's favourite specialists (live ones), newest first
+      responses:
+        "200":
+          description: Favourites.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  allOf: [{ $ref: "#/components/schemas/SpecialistCard" }]
+                  unevaluatedProperties: false
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /favourites/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    put:
+      tags: [catalogue]
+      operationId: addFavourite
+      summary: Save a specialist (idempotent)
+      responses:
+        "204": { description: Saved. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [catalogue]
+      operationId: removeFavourite
+      summary: Remove a saved specialist (idempotent)
+      responses:
+        "204": { description: Removed. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /plans:
+    get:
+      tags: [subscriptions]
+      operationId: getPlans
+      summary: Paid plans, prices and how to pay
+      responses:
+        "200":
+          description: The price list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [plans, payment_instructions]
+                additionalProperties: false
+                properties:
+                  plans:
+                    type: array
+                    items:
+                      type: object
+                      required: [plan, price_kzt]
+                      additionalProperties: false
+                      properties:
+                        plan: { type: string, enum: [basic, featured] }
+                        price_kzt: { type: integer, description: Per month. }
+                  payment_instructions: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /teacher/subscription:
+    get:
+      tags: [subscriptions]
+      operationId: teacherSubscription
+      summary: The teacher's plan, coverage and history
+      responses:
+        "200": { $ref: "#/components/responses/SubscriptionState" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /teacher/stats:
+    get:
+      tags: [stats]
+      operationId: teacherStats
+      summary: Views, search appearances, contacts, requests and lessons per week
+      parameters:
+        - { name: weeks, in: query, schema: { type: integer, minimum: 1, maximum: 52, default: 8 } }
+      responses:
+        "200":
+          description: Oldest week first; the last one is the current week.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [weeks, totals]
+                additionalProperties: false
+                properties:
+                  weeks: { type: array, items: { $ref: "#/components/schemas/StatsWeek" } }
+                  totals: { $ref: "#/components/schemas/StatsWeek" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/specialists/{id}/subscriptions:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      tags: [admin]
+      operationId: adminSubscriptions
+      summary: A specialist's subscriptions
+      responses:
+        "200": { $ref: "#/components/responses/SubscriptionState" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [admin]
+      operationId: adminActivateSubscription
+      summary: Activate or extend a plan
+      description: |
+        Give exactly one of `months` or `ends_on`. With `months` the plan is an extension: it
+        starts when the specialist's running or future subscription of the same plan ends (or now).
+        With `ends_on` it starts now and lasts through that local date. The teacher is notified.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan]
+              additionalProperties: false
+              properties:
+                plan: { $ref: "#/components/schemas/Plan" }
+                months: { type: integer, minimum: 1, maximum: 24 }
+                ends_on: { type: string, format: date }
+                note: { type: string, maxLength: 300, description: "E.g. the Kaspi payment reference." }
+      responses:
+        "200": { $ref: "#/components/responses/SubscriptionState" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/subscriptions/{id}/end:
+    post:
+      tags: [admin]
+      operationId: adminEndSubscription
+      summary: End a subscription now (a future one is deleted)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { $ref: "#/components/responses/SubscriptionState" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/subscriptions/expiring:
+    get:
+      tags: [admin]
+      operationId: adminExpiring
+      summary: Live specialists whose last plan ends within `days`
+      parameters:
+        - { name: days, in: query, schema: { type: integer, minimum: 1, maximum: 90, default: 14 } }
+      responses:
+        "200":
+          description: Soonest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [specialist_id, display_name, owner, plan, ends_at]
+                  additionalProperties: false
+                  properties:
+                    specialist_id: { type: integer, format: int64 }
+                    display_name: { type: string }
+                    owner: { $ref: "#/components/schemas/Person" }
+                    plan: { $ref: "#/components/schemas/Plan" }
+                    ends_at: { type: string, format: date-time }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/founding-period:
+    post:
+      tags: [admin]
+      operationId: adminSetFoundingPeriod
+      summary: Move the end of every running founding plan to `ends_on`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ends_on]
+              additionalProperties: false
+              properties:
+                ends_on: { type: string, format: date }
+      responses:
+        "200":
+          description: How many plans changed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [updated]
+                additionalProperties: false
+                properties:
+                  updated: { type: integer }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/dashboard:
+    get:
+      tags: [admin]
+      operationId: adminDashboard
+      summary: Teachers by status, plans, searches and requests per day, unmet demand
+      parameters:
+        - { name: days, in: query, schema: { type: integer, minimum: 1, maximum: 90, default: 14 } }
+      responses:
+        "200":
+          description: The overview.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Dashboard" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /admin/specialists:
     get:
       tags: [admin]
@@ -700,6 +962,11 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Lesson" }
+    SubscriptionState:
+      description: Visibility and subscriptions.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/SubscriptionState" }
     Availability:
       description: The weekly template and upcoming days off.
       content:
@@ -924,7 +1191,7 @@ components:
 
     SpecialistPublicFields:
       type: object
-      required: [bio, education, lesson_minutes, cancel_hours, address, listed]
+      required: [bio, education, lesson_minutes, cancel_hours, address, listed, favourite]
       properties:
         bio: { type: string }
         education: { type: string }
@@ -932,6 +1199,7 @@ components:
         cancel_hours: { type: integer, description: Students may cancel a confirmed lesson until this many hours before it. }
         address: { type: [string, "null"], description: "Exact address; for the owner, admins and students with a confirmed lesson." }
         listed: { type: boolean, description: Shown in search right now. }
+        favourite: { type: boolean, description: The current user saved this specialist. }
 
     SpecialistPublic:
       allOf:
@@ -1120,3 +1388,81 @@ components:
         next_lesson_at: { type: [string, "null"], format: date-time }
         last_lesson_at: { type: [string, "null"], format: date-time }
         note: { type: string, description: The teacher's private note. }
+
+    SubscriptionState:
+      type: object
+      required: [specialist_id, listed, current, coverage_ends_at, history]
+      additionalProperties: false
+      properties:
+        specialist_id: { type: integer, format: int64 }
+        listed: { type: boolean }
+        current:
+          description: The running plan (featured wins if several run), or null.
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/Subscription"
+        coverage_ends_at: { type: [string, "null"], format: date-time, description: End of the last running or future plan. }
+        history: { type: array, items: { $ref: "#/components/schemas/Subscription" }, description: "Newest end first, at most 50." }
+
+    StatsWeek:
+      type: object
+      required: [week_start, views, search_impressions, contacts, requests, lessons]
+      additionalProperties: false
+      properties:
+        week_start: { type: string, format: date, description: "Monday (totals: the first week)." }
+        views: { type: integer }
+        search_impressions: { type: integer }
+        contacts: { type: integer }
+        requests: { type: integer }
+        lessons: { type: integer, description: Confirmed or completed lessons starting that week. }
+
+    DayCount:
+      type: object
+      required: [date, count]
+      additionalProperties: false
+      properties:
+        date: { type: string, format: date }
+        count: { type: integer }
+
+    Dashboard:
+      type: object
+      required: [users, specialists_by_status, listed, plans_running, expiring_7d, searches_per_day, requests_per_day, unmet_demand]
+      additionalProperties: false
+      properties:
+        users: { type: integer }
+        specialists_by_status:
+          type: object
+          required: [draft, pending, live, hidden, blocked]
+          additionalProperties: false
+          properties:
+            draft: { type: integer }
+            pending: { type: integer }
+            live: { type: integer }
+            hidden: { type: integer }
+            blocked: { type: integer }
+        listed: { type: integer }
+        plans_running:
+          type: object
+          required: [founding, trial, basic, featured]
+          additionalProperties: false
+          properties:
+            founding: { type: integer }
+            trial: { type: integer }
+            basic: { type: integer }
+            featured: { type: integer }
+        expiring_7d: { type: integer }
+        searches_per_day: { type: array, items: { $ref: "#/components/schemas/DayCount" } }
+        requests_per_day: { type: array, items: { $ref: "#/components/schemas/DayCount" } }
+        unmet_demand:
+          description: Subjects searched in the last 30 days with fewer than 3 listed specialists, fewest first.
+          type: array
+          items:
+            type: object
+            required: [subject_id, slug, name_ru, searches, listed_specialists]
+            additionalProperties: false
+            properties:
+              subject_id: { type: integer, format: int64 }
+              slug: { type: string }
+              name_ru: { type: string }
+              searches: { type: integer }
+              listed_specialists: { type: integer }

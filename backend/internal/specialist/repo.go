@@ -309,6 +309,68 @@ func (r *Repo) ListByStatus(ctx context.Context, status string, limit int) ([]Pr
 	return out, nil
 }
 
+// SetFavourite adds or removes a favourite; adding needs a live profile (false otherwise).
+func (r *Repo) SetFavourite(ctx context.Context, userID, specialistID int64, on bool) (bool, error) {
+	if !on {
+		_, err := r.db.Exec(ctx, `DELETE FROM favourites WHERE user_id = $1 AND specialist_id = $2`, userID, specialistID)
+		return true, err
+	}
+	tag, err := r.db.Exec(ctx, `INSERT INTO favourites (user_id, specialist_id)
+		SELECT $1, s.id FROM specialists s WHERE s.id = $2 AND `+visibility.LinkOpenSQL+`
+		ON CONFLICT DO NOTHING`, userID, specialistID)
+	if err != nil {
+		return false, fmt.Errorf("add favourite: %w", err)
+	}
+	if tag.RowsAffected() == 1 {
+		return true, nil
+	}
+	var exists bool
+	err = r.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM favourites WHERE user_id = $1 AND specialist_id = $2)`, userID, specialistID).Scan(&exists)
+	return exists, err
+}
+
+func (r *Repo) IsFavourite(ctx context.Context, userID, specialistID int64) (bool, error) {
+	var ok bool
+	err := r.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM favourites WHERE user_id = $1 AND specialist_id = $2)`, userID, specialistID).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("select favourite: %w", err)
+	}
+	return ok, nil
+}
+
+// Favourites returns the user's favourite live specialists, newest first.
+func (r *Repo) Favourites(ctx context.Context, userID int64) ([]Card, error) {
+	rows, err := r.db.Query(ctx, `SELECT `+cardColumns+` FROM specialists s JOIN favourites f ON f.specialist_id = s.id
+		WHERE f.user_id = $1 AND `+visibility.LinkOpenSQL+` ORDER BY f.created_at DESC LIMIT 200`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("select favourites: %w", err)
+	}
+	defer rows.Close()
+	out := []Card{}
+	for rows.Next() {
+		var c Card
+		if err := rows.Scan(cardDest(&c)...); err != nil {
+			return nil, fmt.Errorf("scan favourite: %w", err)
+		}
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	ids := make([]int64, len(out))
+	for i := range out {
+		ids[i] = out[i].ID
+	}
+	offers, err := r.offers(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Subjects = offers[out[i].ID]
+	}
+	return out, nil
+}
+
 // IDByUser returns the id of the user's own profile.
 func (r *Repo) IDByUser(ctx context.Context, userID int64) (int64, error) {
 	var id int64

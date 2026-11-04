@@ -79,6 +79,8 @@ type env struct {
 	loc      *time.Location
 }
 
+type configT = config.Config
+
 type envOption func(*config.Config)
 
 // newEnv migrates a clean database and builds the app in dev mode (dev auth on).

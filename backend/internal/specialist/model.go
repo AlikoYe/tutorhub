@@ -78,6 +78,9 @@ type Public struct {
 	CancelHours   int     `json:"cancel_hours"` // students may cancel a confirmed lesson up to this many hours before
 	Address       *string `json:"address"`      // only for the owner, admins (and, later, confirmed students)
 	Listed        bool    `json:"listed"`       // shown in search right now
+	Favourite     bool    `json:"favourite"`    // the viewer saved it
+
+	UserID int64 `json:"-"` // the owner's Telegram id
 }
 
 // Subscription is the plan that makes a specialist visible.
@@ -108,8 +111,6 @@ type Private struct {
 	Subscription    *Subscription `json:"subscription"` // running now, or the latest one
 	PersonalLink    *string       `json:"personal_link"`
 	Owner           Owner         `json:"owner"`
-
-	UserID int64 `json:"-"`
 }
 
 // Summary is the user's own profile in /me.
