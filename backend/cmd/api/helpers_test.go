@@ -100,6 +100,7 @@ func newEnv(t *testing.T, opts ...envOption) *env {
 		TrialDays:        30,
 		WebAppURL:        "https://app.example.com",
 		BotUsername:      "tutorhub_test_bot",
+		SiteURL:          "https://tutorhub.example.kz",
 		ReminderBefore:   2 * time.Hour,
 		ReminderInterval: time.Minute,
 	}

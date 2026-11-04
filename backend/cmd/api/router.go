@@ -20,6 +20,7 @@ import (
 	"github.com/AlikoYe/tutorhub/backend/internal/platform/config"
 	"github.com/AlikoYe/tutorhub/backend/internal/platform/httpx"
 	"github.com/AlikoYe/tutorhub/backend/internal/review"
+	"github.com/AlikoYe/tutorhub/backend/internal/site"
 	"github.com/AlikoYe/tutorhub/backend/internal/specialist"
 	"github.com/AlikoYe/tutorhub/backend/internal/stats"
 	"github.com/AlikoYe/tutorhub/backend/internal/subject"
@@ -104,6 +105,11 @@ func (a *app) router() http.Handler {
 	r.Use(httpx.Recoverer(a.log))
 	r.NotFound(httpx.NotFound)
 	r.MethodNotAllowed(httpx.MethodNotAllowed)
+
+	// The public website (server-rendered, no auth).
+	site.NewHandler(a.db, a.specialists, a.reviews, a.subjects, a.events, site.Options{
+		BaseURL: a.cfg.SiteURL, WebAppURL: a.cfg.WebAppURL, BotUsername: a.cfg.BotUsername,
+	}, a.log).Routes(r)
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", healthHandler(a.db))

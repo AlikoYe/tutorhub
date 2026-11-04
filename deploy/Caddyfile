@@ -7,6 +7,12 @@
 		reverse_proxy api:8080
 	}
 
+	# Public website (server-rendered by the API): teacher pages, catalogue pages, SEO files.
+	@site path /t/* /c/* /sitemap.xml /robots.txt
+	handle @site {
+		reverse_proxy api:8080
+	}
+
 	handle {
 		root * /srv
 

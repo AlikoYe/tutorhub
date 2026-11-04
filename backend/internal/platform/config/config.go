@@ -32,6 +32,9 @@ type Config struct {
 	// WebAppURL is the public HTTPS URL of the Mini App, used for the
 	// "Open" buttons the bot sends. Optional.
 	WebAppURL string
+	// SiteURL is the public website base URL for canonical links and the sitemap
+	// (defaults to WEBAPP_URL; the site is served by the same Caddy).
+	SiteURL string
 	// BotUsername (without @) builds personal links t.me/<bot>?start=t_<id>. Optional.
 	BotUsername string
 	// AdminIDs are Telegram ids promoted to role admin at startup.
@@ -75,6 +78,7 @@ func Load() (Config, error) {
 		BotUsername: strings.TrimPrefix(strings.TrimSpace(os.Getenv("BOT_USERNAME")), "@"),
 		UploadDir:   getenv("UPLOAD_DIR", "./data/uploads"),
 	}
+	cfg.SiteURL = strings.TrimRight(getenv("SITE_URL", getenv("WEBAPP_URL", "http://localhost:8080")), "/")
 
 	switch cfg.AppEnv {
 	case EnvDev, EnvStaging, EnvProd:

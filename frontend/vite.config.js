@@ -16,10 +16,10 @@ export default defineConfig({
     // Telegram needs an HTTPS URL; expose the dev server through a tunnel.
     allowedHosts: ['.trycloudflare.com', '.ngrok-free.app'],
     proxy: {
-      '/api': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
+      // The API, and the server-rendered public website it also serves.
+      '^/(api|t|c)/': { target: 'http://localhost:8080', changeOrigin: true },
+      '/sitemap.xml': { target: 'http://localhost:8080', changeOrigin: true },
+      '/robots.txt': { target: 'http://localhost:8080', changeOrigin: true },
     },
   },
 })
