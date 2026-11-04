@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: TutorHub API
-  version: 0.1.0
+  version: 0.2.0
   description: |
     Backend for the TutorHub Telegram Mini App: a catalogue of teachers, tutors and
     consultants in Kazakhstan (Almaty first).
@@ -18,14 +18,32 @@ info:
     - Errors always use the `Error` schema: `{"error": "<code>", "message": "<text>"}`.
       Switch on `error`; `message` is for humans and may change.
 
+    ## Specialist profiles
+    A user has at most one specialist profile (`kind`: teacher or consultant).
+    Status: `draft` -> (`POST /my/specialist/submit`) `pending` -> admin approves -> `live`
+    (or rejects -> back to `draft` with `rejection_reason`). The teacher can pause a live
+    profile: `live` <-> `hidden`. Admins can block (`blocked`).
+
+    **Visibility rule:** a specialist is listed in search iff `status = live` AND a
+    subscription is running now (`starts_at <= now < ends_at`). Approval starts a `trial`
+    plan (default 30 days) or a `founding` plan until a date the admin sets. A live profile
+    without a running subscription is not listed, but its page (`GET /specialists/{id}`) still
+    opens for anyone with the link (`listed: false`). The exact `address` is shown only to the
+    owner and admins.
+
+    Ranking: featured plan first, then the most recently approved.
+
     ## Error codes
     | code | HTTP | when |
     |------|------|------|
     | `bad_request` | 400 | Malformed JSON, missing or invalid parameters. |
     | `unauthorized` | 401 | Missing, malformed, expired or badly signed `Authorization` header. |
-    | `forbidden` | 403 | The current user may not do this (e.g. admin endpoints). |
+    | `forbidden` | 403 | The current user may not do this (admin endpoints for non-admins; editing a blocked profile). |
     | `not_found` | 404 | The resource does not exist or is not visible to the current user. Unknown routes. |
     | `method_not_allowed` | 405 | Wrong HTTP method for an existing path. |
+    | `invalid_status` | 409 | The profile's status does not allow this action (e.g. submit when not `draft`, approve when not `pending`, hide when not `live`). |
+    | `profile_incomplete` | 422 | `POST /my/specialist/submit`: required fields are missing; `message` lists them. |
+    | `invalid_photo` | 422 | `POST /my/specialist/photo`: not a JPEG/PNG/WebP image, empty, or over 5 MB. |
     | `internal` | 500 | Unexpected server error. |
     | `unavailable` | 503 | `/health`: the database is unreachable. |
   license:
@@ -42,7 +60,11 @@ tags:
   - name: system
     description: Health check and the current user.
   - name: catalogue
-    description: Subjects and the specialist catalogue.
+    description: Subjects, vocabularies and the specialist catalogue.
+  - name: my-profile
+    description: The current user's own specialist profile.
+  - name: admin
+    description: Admin-only endpoints (users.role = admin).
 
 paths:
   /health:
@@ -93,6 +115,260 @@ paths:
                 items: { $ref: "#/components/schemas/Subject" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /meta:
+    get:
+      tags: [catalogue]
+      operationId: getMeta
+      summary: Cities, districts and fixed vocabularies
+      responses:
+        "200":
+          description: The vocabularies used by filters and the profile editor.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Meta" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /specialists:
+    get:
+      tags: [catalogue]
+      operationId: searchSpecialists
+      summary: Search the catalogue
+      description: |
+        Only listed specialists (see the visibility rule). Subject, level and price filters
+        must all match the same subject offer. `q` matches name, bio and subject names.
+      parameters:
+        - { name: subject_id, in: query, schema: { type: integer, format: int64, minimum: 1 } }
+        - { name: level, in: query, schema: { $ref: "#/components/schemas/Level" } }
+        - { name: language, in: query, schema: { $ref: "#/components/schemas/Language" } }
+        - { name: format, in: query, schema: { $ref: "#/components/schemas/Format" } }
+        - { name: kind, in: query, schema: { $ref: "#/components/schemas/Kind" } }
+        - { name: city, in: query, schema: { type: string, example: almaty } }
+        - { name: district, in: query, schema: { type: string, example: bostandyk } }
+        - { name: price_min, in: query, schema: { type: integer, minimum: 0, maximum: 1000000 } }
+        - { name: price_max, in: query, schema: { type: integer, minimum: 0, maximum: 1000000 } }
+        - { name: verified, in: query, description: Only verified specialists., schema: { type: boolean } }
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, maximum: 10000, default: 0 } }
+      responses:
+        "200":
+          description: One page of results and the total count.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SpecialistPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /specialists/{id}:
+    get:
+      tags: [catalogue]
+      operationId: getSpecialist
+      summary: A specialist's public profile
+      description: Opens for anyone while the profile is `live` (listed or not); always for the owner and admins.
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200":
+          description: The profile.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SpecialistPublic" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /my/specialist:
+    get:
+      tags: [my-profile]
+      operationId: getMySpecialist
+      summary: The current user's own profile
+      responses:
+        "200": { $ref: "#/components/responses/MySpecialist" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [my-profile]
+      operationId: saveMySpecialist
+      summary: Create or update the current user's profile
+      description: |
+        Creates a `draft` on first call. Replaces every editable field and the subject list.
+        The status does not change (a live profile stays live).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SpecialistInput" }
+      responses:
+        "200": { $ref: "#/components/responses/MySpecialist" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /my/specialist/submit:
+    post:
+      tags: [my-profile]
+      operationId: submitMySpecialist
+      summary: Send a draft for verification
+      description: |
+        Requires display_name, a bio of at least 30 characters, at least one subject (each with
+        at least one level), formats, languages, and a district for offline formats.
+      responses:
+        "200": { $ref: "#/components/responses/MySpecialist" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/InvalidStatus" }
+        "422": { $ref: "#/components/responses/ProfileIncomplete" }
+
+  /my/specialist/hide:
+    post:
+      tags: [my-profile]
+      operationId: hideMySpecialist
+      summary: Pause a live profile (live -> hidden)
+      responses:
+        "200": { $ref: "#/components/responses/MySpecialist" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/InvalidStatus" }
+
+  /my/specialist/unhide:
+    post:
+      tags: [my-profile]
+      operationId: unhideMySpecialist
+      summary: Bring a hidden profile back (hidden -> live)
+      responses:
+        "200": { $ref: "#/components/responses/MySpecialist" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/InvalidStatus" }
+
+  /my/specialist/photo:
+    post:
+      tags: [my-profile]
+      operationId: uploadMySpecialistPhoto
+      summary: Upload or replace the profile photo
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary, description: "JPEG, PNG or WebP, at most 5 MB." }
+      responses:
+        "200": { $ref: "#/components/responses/MySpecialist" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422":
+          description: "`invalid_photo`"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /files/photos/{name}:
+    get:
+      tags: [catalogue]
+      operationId: getPhoto
+      summary: A profile photo (public, cached forever)
+      security: []
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The image.
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+            image/webp: { schema: { type: string, format: binary } }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/specialists:
+    get:
+      tags: [admin]
+      operationId: adminListSpecialists
+      summary: Profiles by status (the verification queue)
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/SpecialistStatus" }
+          description: Default `pending`. Oldest submission first, at most 200.
+      responses:
+        "200":
+          description: Matching profiles.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SpecialistPrivate" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/specialists/{id}:
+    get:
+      tags: [admin]
+      operationId: adminGetSpecialist
+      summary: Any profile, full view
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { $ref: "#/components/responses/MySpecialist" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/specialists/{id}/approve:
+    post:
+      tags: [admin]
+      operationId: adminApproveSpecialist
+      summary: Approve a pending profile (pending -> live)
+      description: |
+        Starts `plan` unless a subscription is already running. `trial` lasts `TRIAL_DAYS`
+        (default 30) unless `ends_on` is given; `founding` needs `ends_on` (last included day).
+        The teacher is notified in the bot. The body is optional.
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                plan: { type: string, enum: [trial, founding], default: trial }
+                ends_on: { type: string, format: date }
+      responses:
+        "200": { $ref: "#/components/responses/MySpecialist" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/InvalidStatus" }
+
+  /admin/specialists/{id}/reject:
+    post:
+      tags: [admin]
+      operationId: adminRejectSpecialist
+      summary: Send a pending profile back to draft with a reason
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 500 }
+      responses:
+        "200": { $ref: "#/components/responses/MySpecialist" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/InvalidStatus" }
+
 components:
   securitySchemes:
     telegramInitData:
@@ -136,6 +412,23 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
           example: { error: not_found, message: "resource not found" }
+    InvalidStatus:
+      description: "`invalid_status`"
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: invalid_status, message: "this action is not allowed in the profile's current status" }
+    ProfileIncomplete:
+      description: "`profile_incomplete`"
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: profile_incomplete, message: "profile is incomplete: bio (at least 30 characters), subjects" }
+    MySpecialist:
+      description: The full profile.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/SpecialistPrivate" }
     Unavailable:
       description: "`unavailable`"
       content:
@@ -157,6 +450,9 @@ components:
             - forbidden
             - not_found
             - method_not_allowed
+            - invalid_status
+            - profile_incomplete
+            - invalid_photo
             - internal
             - unavailable
         message: { type: string }
@@ -173,8 +469,10 @@ components:
         role: { type: string, enum: [user, admin] }
         is_admin: { type: boolean }
         specialist:
-          description: The user's own specialist profile. Always null until profiles exist (M1).
-          type: "null"
+          description: The user's own specialist profile, or null.
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/SpecialistSummary"
 
     Subject:
       type: object
@@ -189,3 +487,202 @@ components:
         category:
           type: string
           enum: [school, exam, language, it, music, arts, consulting, other]
+
+    Level:
+      type: string
+      enum: [primary, middle, high, ent, university, adult]
+      description: "primary = grades 1-4, middle = 5-9, high = 10-11, ent = UNT/ENT prep, university, adult."
+    Language:
+      type: string
+      enum: [kk, ru, en]
+    Format:
+      type: string
+      enum: [online, teacher_place, student_home]
+    Kind:
+      type: string
+      enum: [teacher, consultant]
+    SpecialistStatus:
+      type: string
+      enum: [draft, pending, live, hidden, blocked]
+    Plan:
+      type: string
+      enum: [founding, trial, basic, featured]
+
+    Place:
+      type: object
+      required: [slug, name_ru, name_kk, name_en]
+      additionalProperties: false
+      properties:
+        slug: { type: string }
+        name_ru: { type: string }
+        name_kk: { type: string }
+        name_en: { type: string }
+
+    Meta:
+      type: object
+      required: [cities, levels, formats, languages, kinds]
+      additionalProperties: false
+      properties:
+        cities:
+          type: array
+          items:
+            type: object
+            required: [slug, name_ru, name_kk, name_en, districts]
+            additionalProperties: false
+            properties:
+              slug: { type: string, example: almaty }
+              name_ru: { type: string }
+              name_kk: { type: string }
+              name_en: { type: string }
+              districts:
+                type: array
+                items: { $ref: "#/components/schemas/Place" }
+        levels: { type: array, items: { $ref: "#/components/schemas/Level" } }
+        formats: { type: array, items: { $ref: "#/components/schemas/Format" } }
+        languages: { type: array, items: { $ref: "#/components/schemas/Language" } }
+        kinds: { type: array, items: { $ref: "#/components/schemas/Kind" } }
+
+    Offer:
+      type: object
+      description: One subject a specialist teaches.
+      required: [subject_id, slug, name_ru, name_kk, name_en, levels, price_kzt]
+      additionalProperties: false
+      properties:
+        subject_id: { type: integer, format: int64 }
+        slug: { type: string }
+        name_ru: { type: string }
+        name_kk: { type: string }
+        name_en: { type: string }
+        levels: { type: array, items: { $ref: "#/components/schemas/Level" } }
+        price_kzt: { type: integer, minimum: 0, description: Price per lesson in KZT. }
+
+    SpecialistCard:
+      type: object
+      required: [id, kind, display_name, photo_url, verified, featured, city, district, formats, languages,
+                 experience_years, trial_kind, trial_price, min_price_kzt, subjects]
+      properties:
+        id: { type: integer, format: int64 }
+        kind: { $ref: "#/components/schemas/Kind" }
+        display_name: { type: string }
+        photo_url: { type: [string, "null"], example: /api/files/photos/12-0123456789abcdef.jpg }
+        verified: { type: boolean, description: Documents checked by an admin. }
+        featured: { type: boolean, description: Featured plan running now. }
+        city: { type: string }
+        district: { type: string, description: District slug or empty. }
+        formats: { type: array, items: { $ref: "#/components/schemas/Format" } }
+        languages: { type: array, items: { $ref: "#/components/schemas/Language" } }
+        experience_years: { type: integer }
+        trial_kind: { type: string, enum: [none, free, paid] }
+        trial_price: { type: [integer, "null"], description: Only for a paid trial. }
+        min_price_kzt: { type: [integer, "null"], description: Cheapest subject price; null without subjects. }
+        subjects: { type: array, items: { $ref: "#/components/schemas/Offer" } }
+
+    SpecialistPage:
+      type: object
+      required: [items, total]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            allOf: [{ $ref: "#/components/schemas/SpecialistCard" }]
+            unevaluatedProperties: false
+        total: { type: integer, description: Matches across all pages. }
+
+    SpecialistPublicFields:
+      type: object
+      required: [bio, education, lesson_minutes, address, listed]
+      properties:
+        bio: { type: string }
+        education: { type: string }
+        lesson_minutes: { type: integer, description: Default lesson length. }
+        address: { type: [string, "null"], description: Exact address; only for the owner and admins. }
+        listed: { type: boolean, description: Shown in search right now. }
+
+    SpecialistPublic:
+      allOf:
+        - $ref: "#/components/schemas/SpecialistCard"
+        - $ref: "#/components/schemas/SpecialistPublicFields"
+      unevaluatedProperties: false
+
+    Subscription:
+      type: object
+      required: [id, plan, starts_at, ends_at, note]
+      additionalProperties: false
+      properties:
+        id: { type: integer, format: int64 }
+        plan: { $ref: "#/components/schemas/Plan" }
+        starts_at: { type: string, format: date-time }
+        ends_at: { type: string, format: date-time, description: Exclusive; local midnight after the last day. }
+        note: { type: string }
+
+    SpecialistPrivate:
+      description: The full profile, for its owner and admins.
+      allOf:
+        - $ref: "#/components/schemas/SpecialistCard"
+        - $ref: "#/components/schemas/SpecialistPublicFields"
+        - type: object
+          required: [status, rejection_reason, submitted_at, approved_at, lat, lng, subscription, personal_link, owner]
+          properties:
+            status: { $ref: "#/components/schemas/SpecialistStatus" }
+            rejection_reason: { type: [string, "null"] }
+            submitted_at: { type: [string, "null"], format: date-time }
+            approved_at: { type: [string, "null"], format: date-time }
+            lat: { type: [number, "null"] }
+            lng: { type: [number, "null"] }
+            subscription:
+              description: The subscription running now, else the latest one, else null.
+              oneOf:
+                - type: "null"
+                - $ref: "#/components/schemas/Subscription"
+            personal_link: { type: [string, "null"], example: "https://t.me/tutorhub_bot?start=t_12" }
+            owner:
+              type: object
+              required: [telegram_id, name, username]
+              additionalProperties: false
+              properties:
+                telegram_id: { type: integer, format: int64 }
+                name: { type: string }
+                username: { type: [string, "null"] }
+      unevaluatedProperties: false
+
+    SpecialistSummary:
+      type: object
+      required: [id, status, display_name, listed]
+      additionalProperties: false
+      properties:
+        id: { type: integer, format: int64 }
+        status: { $ref: "#/components/schemas/SpecialistStatus" }
+        display_name: { type: string }
+        listed: { type: boolean }
+
+    SpecialistInput:
+      type: object
+      additionalProperties: false
+      properties:
+        kind: { $ref: "#/components/schemas/Kind" }
+        display_name: { type: string, maxLength: 80 }
+        bio: { type: string, maxLength: 2000 }
+        education: { type: string, maxLength: 1000 }
+        experience_years: { type: integer, minimum: 0, maximum: 70 }
+        city: { type: string, default: almaty }
+        district: { type: string }
+        address: { type: string, maxLength: 200 }
+        lat: { type: [number, "null"] }
+        lng: { type: [number, "null"] }
+        formats: { type: array, items: { $ref: "#/components/schemas/Format" } }
+        languages: { type: array, items: { $ref: "#/components/schemas/Language" } }
+        trial_kind: { type: string, enum: [none, free, paid], default: none }
+        trial_price: { type: [integer, "null"], minimum: 0 }
+        lesson_minutes: { type: integer, minimum: 30, maximum: 240, default: 60, description: Multiple of 15. }
+        subjects:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            required: [subject_id, price_kzt]
+            additionalProperties: false
+            properties:
+              subject_id: { type: integer, format: int64 }
+              levels: { type: array, items: { $ref: "#/components/schemas/Level" } }
+              price_kzt: { type: integer, minimum: 0, maximum: 1000000 }

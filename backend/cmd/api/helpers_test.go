@@ -95,6 +95,9 @@ func newEnv(t *testing.T, opts ...envOption) *env {
 		Timezone:         loc,
 		UploadDir:        t.TempDir(),
 		HoldMinutes:      360,
+		TrialDays:        30,
+		WebAppURL:        "https://app.example.com",
+		BotUsername:      "tutorhub_test_bot",
 		ReminderBefore:   2 * time.Hour,
 		ReminderInterval: time.Minute,
 	}
@@ -103,7 +106,7 @@ func newEnv(t *testing.T, opts ...envOption) *env {
 	}
 	log := slog.New(slog.DiscardHandler)
 	sender := &recordingSender{}
-	links := bot.Links{WebAppURL: "https://app.example.com", BotUsername: "tutorhub_test_bot"}
+	links := bot.Links{WebAppURL: cfg.WebAppURL, BotUsername: cfg.BotUsername}
 	notifier := bot.NewNotifier(sender, links, loc, log)
 	a := newApp(cfg, log, db, notifier)
 	tg := bot.NewWithSender(sender, links, log)

@@ -41,6 +41,8 @@ type Config struct {
 	Timezone *time.Location
 	// UploadDir is where teacher photos and documents are stored.
 	UploadDir string
+	// TrialDays is the default length of the trial plan started when an admin approves a profile.
+	TrialDays int
 
 	ReminderInterval time.Duration
 	ShutdownTimeout  time.Duration
@@ -99,6 +101,9 @@ func Load() (Config, error) {
 		errs = append(errs, err)
 	}
 	if cfg.ReminderBefore, err = durationEnv("REMINDER_BEFORE", 2*time.Hour); err != nil {
+		errs = append(errs, err)
+	}
+	if cfg.TrialDays, err = positiveIntEnv("TRIAL_DAYS", 30); err != nil {
 		errs = append(errs, err)
 	}
 	if cfg.HoldMinutes, err = positiveIntEnv("HOLD_MINUTES", 360); err != nil {

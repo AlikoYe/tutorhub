@@ -19,6 +19,10 @@ const (
 	CodeMethodNotAllowed = "method_not_allowed"
 	CodeInternal         = "internal"
 	CodeUnavailable      = "unavailable"
+
+	CodeInvalidStatus     = "invalid_status"
+	CodeProfileIncomplete = "profile_incomplete"
+	CodeInvalidPhoto      = "invalid_photo"
 )
 
 const maxBodyBytes = 1 << 20 // 1 MiB
