@@ -76,8 +76,8 @@ type Public struct {
 	Education     string  `json:"education"`
 	LessonMinutes int     `json:"lesson_minutes"`
 	CancelHours   int     `json:"cancel_hours"` // students may cancel a confirmed lesson up to this many hours before
-	Address       *string `json:"address"` // only for the owner, admins (and, later, confirmed students)
-	Listed        bool    `json:"listed"`  // shown in search right now
+	Address       *string `json:"address"`      // only for the owner, admins (and, later, confirmed students)
+	Listed        bool    `json:"listed"`       // shown in search right now
 }
 
 // Subscription is the plan that makes a specialist visible.

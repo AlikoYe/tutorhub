@@ -100,8 +100,8 @@ func (l Lesson) ForTeacher(now time.Time) Lesson {
 // Student is one row of the teacher's students list.
 type Student struct {
 	Person
-	Lessons      int        `json:"lessons"`       // confirmed or completed
-	Requests     int        `json:"requests"`      // every request ever made
+	Lessons      int        `json:"lessons"`        // confirmed or completed
+	Requests     int        `json:"requests"`       // every request ever made
 	NextLessonAt *time.Time `json:"next_lesson_at"` // next confirmed lesson
 	LastLessonAt *time.Time `json:"last_lesson_at"` // last completed lesson
 	Note         string     `json:"note"`
