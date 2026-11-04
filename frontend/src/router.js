@@ -6,7 +6,9 @@ const routes = [
   { path: '/lessons', name: 'lessons', component: () => import('@/views/LessonsView.vue'), meta: { tab: 'lessons' } },
   { path: '/favourites', name: 'favourites', component: () => import('@/views/FavouritesView.vue'), meta: { tab: 'favourites' } },
   { path: '/teach', name: 'teach', component: () => import('@/views/TeachView.vue'), meta: { tab: 'teach' } },
+  { path: '/teach/profile', name: 'teach-profile', component: () => import('@/views/ProfileEditorView.vue') },
   { path: '/admin', name: 'admin', component: () => import('@/views/AdminView.vue'), meta: { tab: 'admin' } },
+  { path: '/admin/queue', name: 'admin-queue', component: () => import('@/views/admin/QueueView.vue') },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('@/views/NotFoundView.vue') },
 ]
 

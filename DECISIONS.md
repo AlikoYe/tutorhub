@@ -14,3 +14,11 @@ Choices made while building unattended. One line each: what and why.
 - Frontend has no Pinia: one small reactive store is enough for now.
 - `HOLD_MINUTES` default is 360 (6 h) instead of TableBot's 15 min: teachers answer slower than restaurants; a hold never outlives the lesson start.
 - Subject taxonomy: 47 subjects in 8 categories (school, exam, language, it, music, arts, consulting, other) with ru/kk/en names.
+- M1: one `specialist` package holds the owner editor, admin verification and catalogue search (they share the same rows and queries); `visibility` holds the listing rule like TableBot's `bookingstatus`.
+- M1: the `subscriptions` table is created in M1 (not M3) because the visibility rule needs it; approval starts a `trial` (TRIAL_DAYS, default 30) or a `founding` plan until a date the admin sets.
+- M1: editing a live profile does not send it back to moderation (fast edits of prices/times matter more than re-review in the MVP; admins can still block).
+- M1: the profile page opens for anyone while `status = live`, even when the subscription has ended (the plan says the link keeps working); draft/pending/hidden/blocked are visible only to the owner and admins.
+- M1: levels are primary (1-4), middle (5-9), high (10-11), ent, university, adult; formats online/teacher_place/student_home; languages kk/ru/en.
+- M1: subject, level and price filters must match the same subject offer (e.g. "ENT math under 5000" does not match a teacher whose cheap subject is something else).
+- M1: photos are public files under /api/files/photos (image tags cannot send auth headers); names are random so URLs are not guessable by id.
+- M1: search returns `{items, total}` (not a bare array) so the client can page.
