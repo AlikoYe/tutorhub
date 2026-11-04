@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: TutorHub API
-  version: 0.2.0
+  version: 0.3.0
   description: |
     Backend for the TutorHub Telegram Mini App: a catalogue of teachers, tutors and
     consultants in Kazakhstan (Almaty first).
@@ -31,7 +31,22 @@ info:
     opens for anyone with the link (`listed: false`). The exact `address` is shown only to the
     owner and admins.
 
-    Ranking: featured plan first, then the most recently approved.
+    Ranking: featured plan first, then those with free time in the next 7 days, then the most
+    recently approved.
+
+    ## Availability and lessons
+    A teacher sets a weekly template (`weekday` 0 = Sunday ... 6 = Saturday, `HH:MM` windows,
+    `24:00` allowed as an end) and days off. Free slots start every 30 minutes inside a window,
+    last the subject's `lesson_minutes`, start at least 1 hour from now and at most 30 days ahead,
+    and do not overlap the teacher's pending or confirmed lessons.
+
+    Lesson lifecycle: `pending` (request; holds the slot until `expires_at` =
+    min(now + HOLD_MINUTES, start)) -> `confirmed` | `declined` (teacher, in the app or with the
+    bot's buttons) | `expired` (no answer in time) | `cancelled` (either side). `confirmed` ->
+    `completed` after it ends, or `cancelled`. Only `pending` and `confirmed` lessons hold time;
+    the database rejects overlaps per teacher and per student. Every response reports the
+    *effective* status (an overdue `pending` reads as `expired`, an ended `confirmed` as
+    `completed`). The student sees the teacher's `address` once a lesson is confirmed.
 
     ## Error codes
     | code | HTTP | when |
@@ -44,6 +59,15 @@ info:
     | `invalid_status` | 409 | The profile's status does not allow this action (e.g. submit when not `draft`, approve when not `pending`, hide when not `live`). |
     | `profile_incomplete` | 422 | `POST /my/specialist/submit`: required fields are missing; `message` lists them. |
     | `invalid_photo` | 422 | `POST /my/specialist/photo`: not a JPEG/PNG/WebP image, empty, or over 5 MB. |
+    | `slot_taken` | 409 | `POST /lessons`: the teacher already has a pending or confirmed lesson overlapping this time. |
+    | `student_busy` | 409 | `POST /lessons`: the student already has a pending or confirmed lesson (with anyone) overlapping this time. |
+    | `not_pending` | 409 | Teacher confirm/decline of a lesson that is not `pending` (decided, cancelled or past `expires_at`). |
+    | `not_cancellable` | 409 | Cancel of a lesson that is not pending/confirmed, has started, or (student) is confirmed and closer to the start than the teacher's `cancel_hours`. |
+    | `own_profile` | 422 | `POST /lessons` to yourself. |
+    | `subject_not_offered` | 422 | `POST /lessons`: the teacher does not teach `subject_id`. |
+    | `trial_unavailable` | 422 | `POST /lessons` with `is_trial`: the teacher offers no trial, or the student already had one with them. |
+    | `outside_availability` | 422 | `POST /lessons`: `starts_at` is not a slot of the teacher's weekly template (30-minute grid, lesson fits a window, not a day off) or is more than 30 days ahead. |
+    | `too_soon` | 422 | `POST /lessons`: `starts_at` is less than 1 hour from now. |
     | `internal` | 500 | Unexpected server error. |
     | `unavailable` | 503 | `/health`: the database is unreachable. |
   license:
@@ -63,6 +87,10 @@ tags:
     description: Subjects, vocabularies and the specialist catalogue.
   - name: my-profile
     description: The current user's own specialist profile.
+  - name: lessons
+    description: Free slots and the student's lessons.
+  - name: teacher
+    description: The teacher's schedule, requests and students.
   - name: admin
     description: Admin-only endpoints (users.role = admin).
 
@@ -147,6 +175,7 @@ paths:
         - { name: price_min, in: query, schema: { type: integer, minimum: 0, maximum: 1000000 } }
         - { name: price_max, in: query, schema: { type: integer, minimum: 0, maximum: 1000000 } }
         - { name: verified, in: query, description: Only verified specialists., schema: { type: boolean } }
+        - { name: free_this_week, in: query, description: Only those with free time in the next 7 days., schema: { type: boolean } }
         - { name: q, in: query, schema: { type: string, maxLength: 100 } }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
         - { name: offset, in: query, schema: { type: integer, minimum: 0, maximum: 10000, default: 0 } }
@@ -283,6 +312,251 @@ paths:
             image/webp: { schema: { type: string, format: binary } }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /specialists/{id}/slots:
+    get:
+      tags: [lessons]
+      operationId: getSpecialistSlots
+      summary: Free lesson slots
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { name: subject_id, in: query, description: Use this subject's lesson length (default the profile's)., schema: { type: integer, format: int64, minimum: 1 } }
+        - { name: from, in: query, description: First local date (default today; earlier dates are clamped to today)., schema: { type: string, format: date } }
+        - { name: days, in: query, schema: { type: integer, minimum: 1, maximum: 31, default: 7 } }
+      responses:
+        "200":
+          description: Free slots per local date (dates past the 30-day horizon are omitted).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Slots" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /lessons:
+    post:
+      tags: [lessons]
+      operationId: requestLesson
+      summary: Request a lesson in a free slot
+      description: Creates a `pending` lesson and sends the teacher ✅/❌ buttons in the bot.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [specialist_id, subject_id, starts_at]
+              additionalProperties: false
+              properties:
+                specialist_id: { type: integer, format: int64 }
+                subject_id: { type: integer, format: int64 }
+                starts_at: { type: string, format: date-time }
+                is_trial: { type: boolean, default: false }
+                note: { type: string, maxLength: 500, description: "Message to the teacher (goal, level, ...)." }
+      responses:
+        "201":
+          description: The pending lesson.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Lesson" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/LessonConflict" }
+        "422": { $ref: "#/components/responses/LessonUnprocessable" }
+
+  /lessons/my:
+    get:
+      tags: [lessons]
+      operationId: myLessons
+      summary: The student's lessons
+      parameters:
+        - name: scope
+          in: query
+          schema: { type: string, enum: [upcoming, past], default: upcoming }
+          description: "`upcoming`: pending or confirmed, soonest first. `past`: everything else, newest first. At most 100."
+      responses:
+        "200":
+          description: Lessons.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Lesson" } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /lessons/{id}/cancel:
+    post:
+      tags: [lessons]
+      operationId: cancelMyLesson
+      summary: Cancel the student's own lesson
+      description: A pending request any time before the start; a confirmed lesson until `cancel_hours` before the start.
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody: { $ref: "#/components/requestBodies/Reason" }
+      responses:
+        "200":
+          description: The cancelled lesson.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Lesson" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/LessonStateConflict" }
+
+  /teacher/lessons:
+    get:
+      tags: [teacher]
+      operationId: teacherLessons
+      summary: The teacher's lessons
+      parameters:
+        - name: scope
+          in: query
+          schema: { type: string, enum: [requests, upcoming, past], default: upcoming }
+          description: "`requests`: pending only. `upcoming`: pending or confirmed. `past`: the rest. At most 100."
+      responses:
+        "200":
+          description: Lessons with student details.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Lesson" } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /teacher/lessons/{id}/confirm:
+    post:
+      tags: [teacher]
+      operationId: confirmLesson
+      summary: Confirm a pending request
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { $ref: "#/components/responses/TeacherLesson" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/LessonStateConflict" }
+
+  /teacher/lessons/{id}/decline:
+    post:
+      tags: [teacher]
+      operationId: declineLesson
+      summary: Decline a pending request
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { $ref: "#/components/responses/TeacherLesson" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/LessonStateConflict" }
+
+  /teacher/lessons/{id}/cancel:
+    post:
+      tags: [teacher]
+      operationId: teacherCancelLesson
+      summary: Cancel an upcoming lesson as the teacher
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody: { $ref: "#/components/requestBodies/Reason" }
+      responses:
+        "200": { $ref: "#/components/responses/TeacherLesson" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/LessonStateConflict" }
+
+  /teacher/students:
+    get:
+      tags: [teacher]
+      operationId: teacherStudents
+      summary: Everyone who requested a lesson from the teacher
+      description: Ordered by the next confirmed lesson, then the last completed one.
+      responses:
+        "200":
+          description: Students.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Student" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /teacher/students/{studentId}/note:
+    put:
+      tags: [teacher]
+      operationId: setStudentNote
+      summary: Save the teacher's private note about a student
+      parameters:
+        - { name: studentId, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [note]
+              additionalProperties: false
+              properties:
+                note: { type: string, maxLength: 2000 }
+      responses:
+        "204": { description: Saved. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /teacher/availability:
+    get:
+      tags: [teacher]
+      operationId: getAvailability
+      summary: The teacher's weekly template and upcoming days off
+      responses:
+        "200": { $ref: "#/components/responses/Availability" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /teacher/availability/rules:
+    put:
+      tags: [teacher]
+      operationId: setAvailabilityRules
+      summary: Replace the weekly template
+      description: Windows are multiples of 15 minutes and must not overlap on the same weekday. Existing lessons are kept.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rules]
+              additionalProperties: false
+              properties:
+                rules: { type: array, maxItems: 50, items: { $ref: "#/components/schemas/AvailabilityRule" } }
+      responses:
+        "200": { $ref: "#/components/responses/Availability" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /teacher/availability/days-off/{day}:
+    parameters:
+      - { name: day, in: path, required: true, schema: { type: string, format: date } }
+    put:
+      tags: [teacher]
+      operationId: addDayOff
+      summary: Mark a local date as a day off (today .. one year ahead)
+      responses:
+        "200": { $ref: "#/components/responses/Availability" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [teacher]
+      operationId: removeDayOff
+      summary: Remove a day off
+      responses:
+        "200": { $ref: "#/components/responses/Availability" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /admin/specialists:
     get:
       tags: [admin]
@@ -387,7 +661,56 @@ components:
       schema: { type: integer, format: int64, minimum: 1 }
       example: 1
 
+  requestBodies:
+    Reason:
+      description: Optional reason shown to the other side.
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            properties:
+              reason: { type: string, maxLength: 500 }
+
   responses:
+    LessonConflict:
+      description: "`slot_taken` or `student_busy`"
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            slot_taken: { value: { error: slot_taken, message: "this time is already taken" } }
+            student_busy: { value: { error: student_busy, message: "you already have a lesson at that time" } }
+    LessonStateConflict:
+      description: "`not_pending` or `not_cancellable`"
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            not_pending: { value: { error: not_pending, message: "lesson request is no longer pending" } }
+            not_cancellable: { value: { error: not_cancellable, message: "lesson can no longer be cancelled" } }
+    LessonUnprocessable:
+      description: "`own_profile`, `subject_not_offered`, `trial_unavailable`, `outside_availability` or `too_soon`"
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: outside_availability, message: "this time is outside the teacher's working hours" }
+    TeacherLesson:
+      description: The lesson, with student details.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Lesson" }
+    Availability:
+      description: The weekly template and upcoming days off.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [rules, days_off]
+            additionalProperties: false
+            properties:
+              rules: { type: array, items: { $ref: "#/components/schemas/AvailabilityRule" } }
+              days_off: { type: array, items: { type: string, format: date } }
     BadRequest:
       description: "`bad_request`"
       content:
@@ -453,6 +776,15 @@ components:
             - invalid_status
             - profile_incomplete
             - invalid_photo
+            - slot_taken
+            - student_busy
+            - not_pending
+            - not_cancellable
+            - own_profile
+            - subject_not_offered
+            - trial_unavailable
+            - outside_availability
+            - too_soon
             - internal
             - unavailable
         message: { type: string }
@@ -545,7 +877,7 @@ components:
     Offer:
       type: object
       description: One subject a specialist teaches.
-      required: [subject_id, slug, name_ru, name_kk, name_en, levels, price_kzt]
+      required: [subject_id, slug, name_ru, name_kk, name_en, levels, price_kzt, lesson_minutes]
       additionalProperties: false
       properties:
         subject_id: { type: integer, format: int64 }
@@ -555,6 +887,7 @@ components:
         name_en: { type: string }
         levels: { type: array, items: { $ref: "#/components/schemas/Level" } }
         price_kzt: { type: integer, minimum: 0, description: Price per lesson in KZT. }
+        lesson_minutes: { type: integer, description: Lesson length for this subject. }
 
     SpecialistCard:
       type: object
@@ -591,12 +924,13 @@ components:
 
     SpecialistPublicFields:
       type: object
-      required: [bio, education, lesson_minutes, address, listed]
+      required: [bio, education, lesson_minutes, cancel_hours, address, listed]
       properties:
         bio: { type: string }
         education: { type: string }
         lesson_minutes: { type: integer, description: Default lesson length. }
-        address: { type: [string, "null"], description: Exact address; only for the owner and admins. }
+        cancel_hours: { type: integer, description: Students may cancel a confirmed lesson until this many hours before it. }
+        address: { type: [string, "null"], description: Exact address; for the owner, admins and students with a confirmed lesson. }
         listed: { type: boolean, description: Shown in search right now. }
 
     SpecialistPublic:
@@ -675,6 +1009,7 @@ components:
         trial_kind: { type: string, enum: [none, free, paid], default: none }
         trial_price: { type: [integer, "null"], minimum: 0 }
         lesson_minutes: { type: integer, minimum: 30, maximum: 240, default: 60, description: Multiple of 15. }
+        cancel_hours: { type: [integer, "null"], minimum: 0, maximum: 72, default: 12 }
         subjects:
           type: array
           maxItems: 20
@@ -686,3 +1021,102 @@ components:
               subject_id: { type: integer, format: int64 }
               levels: { type: array, items: { $ref: "#/components/schemas/Level" } }
               price_kzt: { type: integer, minimum: 0, maximum: 1000000 }
+              lesson_minutes: { type: [integer, "null"], minimum: 30, maximum: 240, description: "Override; null = the profile default." }
+
+    AvailabilityRule:
+      type: object
+      required: [weekday, starts_at, ends_at]
+      additionalProperties: false
+      properties:
+        weekday: { type: integer, minimum: 0, maximum: 6, description: 0 = Sunday ... 6 = Saturday. }
+        starts_at: { type: string, pattern: "^([01][0-9]|2[0-4]):[0-5][0-9]$", example: "16:00" }
+        ends_at: { type: string, pattern: "^([01][0-9]|2[0-4]):[0-5][0-9]$", example: "20:00" }
+
+    Slots:
+      type: object
+      required: [specialist_id, lesson_minutes, days]
+      additionalProperties: false
+      properties:
+        specialist_id: { type: integer, format: int64 }
+        lesson_minutes: { type: integer }
+        days:
+          type: array
+          items:
+            type: object
+            required: [date, slots]
+            additionalProperties: false
+            properties:
+              date: { type: string, format: date }
+              slots:
+                type: array
+                items:
+                  type: object
+                  required: [starts_at, ends_at]
+                  additionalProperties: false
+                  properties:
+                    starts_at: { type: string, format: date-time }
+                    ends_at: { type: string, format: date-time }
+
+    Person:
+      type: object
+      required: [telegram_id, name, username]
+      additionalProperties: false
+      properties:
+        telegram_id: { type: integer, format: int64 }
+        name: { type: string }
+        username: { type: [string, "null"] }
+
+    Lesson:
+      type: object
+      required: [id, status, starts_at, ends_at, expires_at, is_trial, price_kzt, note, cancelled_by, cancel_reason,
+                 created_at, can_cancel, subject, specialist]
+      additionalProperties: false
+      properties:
+        id: { type: integer, format: int64 }
+        status: { type: string, enum: [pending, confirmed, declined, cancelled, expired, completed] }
+        starts_at: { type: string, format: date-time }
+        ends_at: { type: string, format: date-time }
+        expires_at: { type: [string, "null"], format: date-time, description: Only while pending. }
+        is_trial: { type: boolean }
+        price_kzt: { type: integer, description: Price agreed at request time (0 for a free trial). }
+        note: { type: string }
+        cancelled_by: { type: [string, "null"], enum: [student, teacher, null] }
+        cancel_reason: { type: string }
+        created_at: { type: string, format: date-time }
+        can_cancel: { type: boolean, description: Whether the current viewer may cancel it now. }
+        subject:
+          type: object
+          required: [id, slug, name_ru, name_kk, name_en]
+          additionalProperties: false
+          properties:
+            id: { type: integer, format: int64 }
+            slug: { type: string }
+            name_ru: { type: string }
+            name_kk: { type: string }
+            name_en: { type: string }
+        specialist:
+          type: object
+          required: [id, display_name, photo_url, address]
+          additionalProperties: false
+          properties:
+            id: { type: integer, format: int64 }
+            display_name: { type: string }
+            photo_url: { type: [string, "null"] }
+            address: { type: [string, "null"], description: "Student view: the teacher's address once confirmed. Teacher view: null." }
+        student:
+          $ref: "#/components/schemas/Person"
+          description: Teacher views only.
+
+    Student:
+      type: object
+      required: [telegram_id, name, username, lessons, requests, next_lesson_at, last_lesson_at, note]
+      additionalProperties: false
+      properties:
+        telegram_id: { type: integer, format: int64 }
+        name: { type: string }
+        username: { type: [string, "null"] }
+        lessons: { type: integer, description: Confirmed or completed lessons. }
+        requests: { type: integer, description: Every request ever made. }
+        next_lesson_at: { type: [string, "null"], format: date-time }
+        last_lesson_at: { type: [string, "null"], format: date-time }
+        note: { type: string, description: The teacher's private note. }

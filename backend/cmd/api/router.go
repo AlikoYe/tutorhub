@@ -11,8 +11,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/AlikoYe/tutorhub/backend/internal/auth"
+	"github.com/AlikoYe/tutorhub/backend/internal/availability"
 	"github.com/AlikoYe/tutorhub/backend/internal/bot"
 	"github.com/AlikoYe/tutorhub/backend/internal/geo"
+	"github.com/AlikoYe/tutorhub/backend/internal/lesson"
 	"github.com/AlikoYe/tutorhub/backend/internal/notify"
 	"github.com/AlikoYe/tutorhub/backend/internal/platform/config"
 	"github.com/AlikoYe/tutorhub/backend/internal/platform/httpx"
@@ -30,6 +32,8 @@ type app struct {
 	subjects    *subject.Repo
 	photos      specialist.PhotoStore
 	specialists *specialist.Service
+	schedules   *availability.Service
+	lessons     *lesson.Service
 }
 
 func newApp(cfg config.Config, log *slog.Logger, db *pgxpool.Pool, notifier *bot.Notifier) *app {
@@ -42,7 +46,7 @@ func newApp(cfg config.Config, log *slog.Logger, db *pgxpool.Pool, notifier *bot
 		photos:   specialist.NewPhotoStore(cfg.UploadDir),
 	}
 	links := bot.Links{WebAppURL: cfg.WebAppURL, BotUsername: cfg.BotUsername}
-	a.specialists = specialist.NewService(specialist.NewRepo(db), specialist.Options{
+	a.specialists = specialist.NewService(specialist.NewRepo(db, cfg.Timezone.String()), specialist.Options{
 		Photos:       a.photos,
 		Notifier:     notifier,
 		PersonalLink: links.SpecialistLink,
@@ -50,17 +54,21 @@ func newApp(cfg config.Config, log *slog.Logger, db *pgxpool.Pool, notifier *bot
 		Location:     cfg.Timezone,
 		Log:          log,
 	})
+	a.schedules = availability.NewService(availability.NewRepo(db), a.specialists, cfg.Timezone)
+	a.lessons = lesson.NewService(lesson.NewRepo(db, cfg.Timezone), a.schedules, a.specialists.Repo(), notifier, cfg.HoldMinutes, cfg.Timezone, log)
+	a.specialists.SetAddressAccess(a.lessons)
 	return a
 }
 
 // registerBot adds the domain commands and callbacks to the bot.
 func (a *app) registerBot(b *bot.Bot) {
 	b.RegisterSpecialists(a.specialists)
+	b.RegisterLessons(a.lessons, a.cfg.Timezone)
 }
 
 // worker returns the background worker with every domain job.
 func (a *app) worker() *notify.Worker {
-	return notify.NewWorker(a.cfg.ReminderInterval, a.log)
+	return notify.NewWorker(a.cfg.ReminderInterval, a.log, a.lessons.Jobs(a.cfg.ReminderBefore)...)
 }
 
 func (a *app) router() http.Handler {
@@ -87,8 +95,18 @@ func (a *app) router() http.Handler {
 			r.Get("/meta", func(w http.ResponseWriter, _ *http.Request) { httpx.JSON(w, http.StatusOK, geo.CurrentMeta()) })
 
 			specialists := specialist.NewHandler(a.specialists, a.log)
-			r.Route("/specialists", specialists.CatalogueRoutes)
+			schedules := availability.NewHandler(a.schedules, a.log)
+			lessons := lesson.NewHandler(a.lessons, a.log)
+			r.Route("/specialists", func(r chi.Router) {
+				specialists.CatalogueRoutes(r)
+				r.Get("/{id}/slots", schedules.Slots)
+			})
 			r.Route("/my/specialist", specialists.MyRoutes)
+			r.Route("/lessons", lessons.StudentRoutes)
+			r.Route("/teacher", func(r chi.Router) {
+				lessons.TeacherRoutes(r)
+				r.Route("/availability", schedules.TeacherRoutes)
+			})
 
 			r.Route("/admin", func(r chi.Router) {
 				r.Use(auth.RequireAdmin)
