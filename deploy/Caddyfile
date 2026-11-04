@@ -1,0 +1,24 @@
+# SITE_ADDRESS defaults to :80 (plain HTTP, local). Set it to your domain,
+# e.g. tutorhub.example.com, and Caddy will obtain a TLS certificate.
+{$SITE_ADDRESS::80} {
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy api:8080
+	}
+
+	handle {
+		root * /srv
+
+		# Hashed build assets can be cached forever; everything else (notably
+		# index.html, served for every SPA route) must be revalidated.
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		@notAssets not path /assets/*
+		header @notAssets Cache-Control "no-cache"
+
+		# SPA history-mode fallback.
+		try_files {path} /index.html
+		file_server
+	}
+}

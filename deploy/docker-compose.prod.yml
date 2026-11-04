@@ -1,0 +1,41 @@
+# Production overrides. Always used together with the base file, from the repo root:
+#   docker compose -p tutorhub --env-file .env \
+#     -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml up -d --build
+# deploy/deploy.sh and the prod-* make targets do this for you.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    # Never reachable from outside the VM (Docker-published ports bypass ufw).
+    ports: !reset []
+    restart: unless-stopped
+    logging: *logging
+
+  migrate:
+    # One-shot job: it must not be restarted after it exits.
+    restart: "no"
+    logging: *logging
+
+  api:
+    env_file: !override
+      - path: ../.env
+        required: true
+    restart: unless-stopped
+    logging: *logging
+
+  caddy:
+    # Frontend and Caddyfile are baked into the image instead of bind-mounted.
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
+    image: tutorhub-web:latest
+    volumes: !override
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+    logging: *logging
