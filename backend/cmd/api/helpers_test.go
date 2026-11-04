@@ -268,3 +268,5 @@ func signInitData(id int64, authDate time.Time) string {
 	v.Set("hash", hex.EncodeToString(mac.Sum(nil)))
 	return v.Encode()
 }
+
+func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }

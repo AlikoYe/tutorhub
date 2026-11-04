@@ -3,6 +3,13 @@
 // never re-type the rule.
 package visibility
 
+import (
+	"regexp"
+	"strings"
+
+	"github.com/AlikoYe/tutorhub/backend/internal/lessonstatus"
+)
+
 // Values of specialists.status.
 const (
 	Draft   = "draft"
@@ -35,5 +42,33 @@ const FeaturedSQL = `EXISTS (SELECT 1 FROM subscriptions sub
 // an expired subscription hides a teacher from search, but their link keeps working.
 const LinkOpenSQL = `(s.status = 'live')`
 
-// RankSQL orders listed specialists: featured first, then newest approval.
-const RankSQL = FeaturedSQL + ` DESC, s.approved_at DESC NULLS LAST, s.id DESC`
+var zoneName = regexp.MustCompile(`^[A-Za-z0-9_+\-/]+$`)
+
+// FreeSoonSQL is true when specialist s has a working window in the next 7 local days (tz)
+// that is not a day off, has not ended, and is not fully covered by blocking lessons.
+// It is an approximation of "has free slots this week" that stays a single SQL query.
+func FreeSoonSQL(tz string) string {
+	if !zoneName.MatchString(tz) {
+		panic("visibility: bad time zone name " + tz)
+	}
+	q := `EXISTS (
+	SELECT 1
+	FROM generate_series(0, 6) AS g(n)
+	CROSS JOIN LATERAL (SELECT (now() AT TIME ZONE 'TZ')::date + g.n AS d) day
+	JOIN availability_rules ar ON ar.specialist_id = s.id AND ar.weekday = extract(dow FROM day.d)
+	CROSS JOIN LATERAL (SELECT greatest((day.d + ar.starts_at) AT TIME ZONE 'TZ', now() + interval '1 hour') AS ws,
+	                           (day.d + ar.ends_at) AT TIME ZONE 'TZ' AS we) w
+	WHERE NOT EXISTS (SELECT 1 FROM availability_exceptions ae WHERE ae.specialist_id = s.id AND ae.day = day.d AND ae.closed)
+	  AND w.we >= w.ws + make_interval(mins => s.lesson_minutes)
+	  AND coalesce((SELECT sum(extract(epoch FROM upper(l.during * tstzrange(w.ws, w.we)) - lower(l.during * tstzrange(w.ws, w.we))))
+	                FROM lessons l
+	                WHERE l.specialist_id = s.id AND ` + lessonstatus.BlockingSQL + ` AND l.during && tstzrange(w.ws, w.we)), 0)
+	      + s.lesson_minutes * 60 <= extract(epoch FROM w.we - w.ws))`
+	return strings.ReplaceAll(q, "TZ", tz)
+}
+
+// RankSQL orders listed specialists: featured first, then those with free time this week,
+// then the most recently approved.
+func RankSQL(tz string) string {
+	return FeaturedSQL + ` DESC, ` + FreeSoonSQL(tz) + ` DESC, s.approved_at DESC NULLS LAST, s.id DESC`
+}

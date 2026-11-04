@@ -17,11 +17,14 @@ import (
 
 // Repo is the PostgreSQL data access layer for specialists.
 type Repo struct {
-	db *pgxpool.Pool
+	db   *pgxpool.Pool
+	rank string
+	free string
 }
 
-func NewRepo(db *pgxpool.Pool) *Repo {
-	return &Repo{db: db}
+// NewRepo needs the app time zone name for the "free this week" filter and ranking.
+func NewRepo(db *pgxpool.Pool, tz string) *Repo {
+	return &Repo{db: db, rank: visibility.RankSQL(tz), free: visibility.FreeSoonSQL(tz)}
 }
 
 // DB exposes the pool to sibling packages that extend profiles (stats, lessons).
@@ -32,7 +35,7 @@ const cardColumns = `s.id, s.kind, s.display_name, s.photo_url, s.verified, ` + 
 	(SELECT min(ss.price_kzt) FROM specialist_subjects ss WHERE ss.specialist_id = s.id)`
 
 const selectPrivate = `SELECT ` + cardColumns + `,
-	s.bio, s.education, s.lesson_minutes, s.address, ` + visibility.ListedSQL + `,
+	s.bio, s.education, s.lesson_minutes, s.cancel_hours, s.address, ` + visibility.ListedSQL + `,
 	s.status, s.rejection_reason, s.submitted_at, s.approved_at, s.lat, s.lng,
 	u.telegram_id, u.name, u.username
 	FROM specialists s JOIN users u ON u.telegram_id = s.user_id`
@@ -46,7 +49,7 @@ func scanPrivate(row pgx.Row) (Private, error) {
 	var p Private
 	var address string
 	dest := append(cardDest(&p.Card),
-		&p.Bio, &p.Education, &p.LessonMinutes, &address, &p.Listed,
+		&p.Bio, &p.Education, &p.LessonMinutes, &p.CancelHours, &address, &p.Listed,
 		&p.Status, &p.RejectionReason, &p.SubmittedAt, &p.ApprovedAt, &p.Lat, &p.Lng,
 		&p.Owner.TelegramID, &p.Owner.Name, &p.Owner.Username)
 	if err := row.Scan(dest...); err != nil {
@@ -92,8 +95,9 @@ func (r *Repo) GetByUser(ctx context.Context, userID int64) (Private, error) {
 // offers loads the subjects of the given specialists, keyed by specialist id.
 func (r *Repo) offers(ctx context.Context, ids []int64) (map[int64][]Offer, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT ss.specialist_id, sj.id, sj.slug, sj.name_ru, sj.name_kk, sj.name_en, ss.levels, ss.price_kzt
-		FROM specialist_subjects ss JOIN subjects sj ON sj.id = ss.subject_id
+		SELECT ss.specialist_id, sj.id, sj.slug, sj.name_ru, sj.name_kk, sj.name_en, ss.levels, ss.price_kzt,
+		       coalesce(ss.lesson_minutes, sp.lesson_minutes)
+		FROM specialist_subjects ss JOIN subjects sj ON sj.id = ss.subject_id JOIN specialists sp ON sp.id = ss.specialist_id
 		WHERE ss.specialist_id = ANY($1)
 		ORDER BY sj.position, sj.id`, ids)
 	if err != nil {
@@ -107,7 +111,7 @@ func (r *Repo) offers(ctx context.Context, ids []int64) (map[int64][]Offer, erro
 	for rows.Next() {
 		var sid int64
 		var o Offer
-		if err := rows.Scan(&sid, &o.SubjectID, &o.Slug, &o.NameRU, &o.NameKK, &o.NameEN, &o.Levels, &o.PriceKZT); err != nil {
+		if err := rows.Scan(&sid, &o.SubjectID, &o.Slug, &o.NameRU, &o.NameKK, &o.NameEN, &o.Levels, &o.PriceKZT, &o.LessonMinutes); err != nil {
 			return nil, fmt.Errorf("scan offer: %w", err)
 		}
 		out[sid] = append(out[sid], o)
@@ -152,19 +156,19 @@ func (r *Repo) Upsert(ctx context.Context, userID int64, in Input) (int64, error
 	err := pgx.BeginFunc(ctx, r.db, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `
 			INSERT INTO specialists (user_id, kind, display_name, bio, education, experience_years, city, district,
-			                         address, lat, lng, formats, languages, trial_kind, trial_price, lesson_minutes)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+			                         address, lat, lng, formats, languages, trial_kind, trial_price, lesson_minutes, cancel_hours)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 			ON CONFLICT (user_id) DO UPDATE SET
 				kind = EXCLUDED.kind, display_name = EXCLUDED.display_name, bio = EXCLUDED.bio,
 				education = EXCLUDED.education, experience_years = EXCLUDED.experience_years,
 				city = EXCLUDED.city, district = EXCLUDED.district, address = EXCLUDED.address,
 				lat = EXCLUDED.lat, lng = EXCLUDED.lng, formats = EXCLUDED.formats, languages = EXCLUDED.languages,
 				trial_kind = EXCLUDED.trial_kind, trial_price = EXCLUDED.trial_price,
-				lesson_minutes = EXCLUDED.lesson_minutes, updated_at = now()
+				lesson_minutes = EXCLUDED.lesson_minutes, cancel_hours = EXCLUDED.cancel_hours, updated_at = now()
 			WHERE specialists.status <> 'blocked'
 			RETURNING id`,
 			userID, in.Kind, in.DisplayName, in.Bio, in.Education, in.ExperienceYears, in.City, in.District,
-			in.Address, in.Lat, in.Lng, in.Formats, in.Languages, in.TrialKind, in.TrialPrice, in.LessonMinutes,
+			in.Address, in.Lat, in.Lng, in.Formats, in.Languages, in.TrialKind, in.TrialPrice, in.LessonMinutes, *in.CancelHours,
 		).Scan(&id)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrBlocked
@@ -176,8 +180,8 @@ func (r *Repo) Upsert(ctx context.Context, userID int64, in Input) (int64, error
 			return err
 		}
 		for _, o := range in.Subjects {
-			_, err := tx.Exec(ctx, `INSERT INTO specialist_subjects (specialist_id, subject_id, levels, price_kzt)
-				VALUES ($1, $2, $3, $4)`, id, o.SubjectID, o.Levels, o.PriceKZT)
+			_, err := tx.Exec(ctx, `INSERT INTO specialist_subjects (specialist_id, subject_id, levels, price_kzt, lesson_minutes)
+				VALUES ($1, $2, $3, $4, $5)`, id, o.SubjectID, o.Levels, o.PriceKZT, o.LessonMinutes)
 			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) && pgErr.Code == "23503" {
 				return fmt.Errorf("%w %d", ErrUnknownSubj, o.SubjectID)
@@ -305,6 +309,19 @@ func (r *Repo) ListByStatus(ctx context.Context, status string, limit int) ([]Pr
 	return out, nil
 }
 
+// IDByUser returns the id of the user's own profile.
+func (r *Repo) IDByUser(ctx context.Context, userID int64) (int64, error) {
+	var id int64
+	err := r.db.QueryRow(ctx, `SELECT id FROM specialists WHERE user_id = $1`, userID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrNoProfile
+	}
+	if err != nil {
+		return 0, fmt.Errorf("select specialist id: %w", err)
+	}
+	return id, nil
+}
+
 // AdminIDs lists every admin's Telegram id.
 func (r *Repo) AdminIDs(ctx context.Context) ([]int64, error) {
 	rows, err := r.db.Query(ctx, `SELECT telegram_id FROM users WHERE role = 'admin' ORDER BY telegram_id`)
@@ -319,7 +336,7 @@ type Filter struct {
 	Kind, City, District, Language, Format, Level, Query string
 	SubjectID                                            int64
 	PriceMin, PriceMax                                   *int
-	VerifiedOnly                                         bool
+	VerifiedOnly, FreeThisWeek                           bool
 	Limit, Offset                                        int
 }
 
@@ -356,6 +373,9 @@ func (r *Repo) Search(ctx context.Context, f Filter) (Page, error) {
 	if f.VerifiedOnly {
 		where = append(where, "s.verified")
 	}
+	if f.FreeThisWeek {
+		where = append(where, r.free)
+	}
 	// Subject, level and price must all match the same offer.
 	var offer []string
 	if f.SubjectID != 0 {
@@ -382,7 +402,7 @@ func (r *Repo) Search(ctx context.Context, f Filter) (Page, error) {
 
 	sql := `SELECT ` + cardColumns + `, count(*) OVER () FROM specialists s
 		WHERE ` + strings.Join(where, " AND ") + `
-		ORDER BY ` + visibility.RankSQL + `
+		ORDER BY ` + r.rank + `
 		LIMIT ` + arg(f.Limit) + ` OFFSET ` + arg(f.Offset)
 	rows, err := r.db.Query(ctx, sql, args...)
 	if err != nil {

@@ -84,6 +84,9 @@ func ParseFilter(r *http.Request) (Filter, error) {
 	if f.VerifiedOnly, err = httpx.QueryBool(r, "verified"); err != nil {
 		return f, err
 	}
+	if f.FreeThisWeek, err = httpx.QueryBool(r, "free_this_week"); err != nil {
+		return f, err
+	}
 	if f.Query = q.Get("q"); utf8.RuneCountInString(f.Query) > 100 {
 		return f, errors.New("q must be at most 100 characters")
 	}

@@ -23,6 +23,16 @@ const (
 	CodeInvalidStatus     = "invalid_status"
 	CodeProfileIncomplete = "profile_incomplete"
 	CodeInvalidPhoto      = "invalid_photo"
+
+	CodeSlotTaken           = "slot_taken"
+	CodeStudentBusy         = "student_busy"
+	CodeNotPending          = "not_pending"
+	CodeNotCancellable      = "not_cancellable"
+	CodeOwnProfile          = "own_profile"
+	CodeSubjectNotOffered   = "subject_not_offered"
+	CodeTrialUnavailable    = "trial_unavailable"
+	CodeOutsideAvailability = "outside_availability"
+	CodeTooSoon             = "too_soon"
 )
 
 const maxBodyBytes = 1 << 20 // 1 MiB

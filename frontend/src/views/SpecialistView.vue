@@ -7,6 +7,8 @@ import { loadMeta, districtName, cityName } from '@/store'
 import { t, levels, formats, languages, kinds, formatPrice } from '@/i18n'
 import Avatar from '@/components/Avatar.vue'
 import AsyncState from '@/components/AsyncState.vue'
+import BookingPanel from '@/components/BookingPanel.vue'
+import { store } from '@/store'
 
 const props = defineProps({ id: { type: String, required: true } })
 const router = useRouter()
@@ -58,11 +60,13 @@ watch(() => props.id, load)
           <strong>{{ formatPrice(o.price_kzt) }}</strong>
         </div>
         <p class="hint" style="margin-bottom: 0">
-          {{ t('lessonLength') }}: {{ p.lesson_minutes }} {{ t('min') }}
+          {{ t('lessonLength') }}: {{ p.lesson_minutes }} {{ t('min') }} · отмена не позже чем за {{ p.cancel_hours }} ч
           <template v-if="p.trial_kind === 'free'"> · {{ t('trialFree') }}</template>
           <template v-else-if="p.trial_kind === 'paid'"> · {{ t('trialPaid') }}: {{ formatPrice(p.trial_price) }}</template>
         </p>
       </div>
+
+      <BookingPanel v-if="p.subjects.length && store.me && p.id !== store.me.specialist?.id" :specialist="p" />
 
       <div class="card">
         <div class="hint">Формат</div>

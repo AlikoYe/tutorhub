@@ -46,6 +46,8 @@ type Offer struct {
 	NameEN    string   `json:"name_en"`
 	Levels    []string `json:"levels"`
 	PriceKZT  int      `json:"price_kzt"`
+	// LessonMinutes is the lesson length for this subject (the specialist's default unless overridden).
+	LessonMinutes int `json:"lesson_minutes"`
 }
 
 // Card is a specialist in search results.
@@ -73,8 +75,9 @@ type Public struct {
 	Bio           string  `json:"bio"`
 	Education     string  `json:"education"`
 	LessonMinutes int     `json:"lesson_minutes"`
-	Address       *string `json:"address"` // only for the owner, admins (and, later, confirmed students)
-	Listed        bool    `json:"listed"`  // shown in search right now
+	CancelHours   int     `json:"cancel_hours"` // students may cancel a confirmed lesson up to this many hours before
+	Address       *string `json:"address"`      // only for the owner, admins (and, later, confirmed students)
+	Listed        bool    `json:"listed"`       // shown in search right now
 }
 
 // Subscription is the plan that makes a specialist visible.
@@ -119,9 +122,10 @@ type Summary struct {
 
 // OfferInput is one subject in an edit request.
 type OfferInput struct {
-	SubjectID int64    `json:"subject_id"`
-	Levels    []string `json:"levels"`
-	PriceKZT  int      `json:"price_kzt"`
+	SubjectID     int64    `json:"subject_id"`
+	Levels        []string `json:"levels"`
+	PriceKZT      int      `json:"price_kzt"`
+	LessonMinutes *int     `json:"lesson_minutes"` // nil = the profile default
 }
 
 // Input is the editable part of a profile (PUT /my/specialist replaces all of it).
@@ -141,6 +145,7 @@ type Input struct {
 	TrialKind       string       `json:"trial_kind"`
 	TrialPrice      *int         `json:"trial_price"`
 	LessonMinutes   int          `json:"lesson_minutes"`
+	CancelHours     *int         `json:"cancel_hours"` // nil = 12
 	Subjects        []OfferInput `json:"subjects"`
 }
 
@@ -172,6 +177,10 @@ func (in *Input) Normalize() error {
 	}
 	if in.LessonMinutes == 0 {
 		in.LessonMinutes = 60
+	}
+	if in.CancelHours == nil {
+		h := 12
+		in.CancelHours = &h
 	}
 	if in.Formats == nil {
 		in.Formats = []string{}
@@ -211,6 +220,8 @@ func (in *Input) Normalize() error {
 		return invalid("trial_price (0..1000000) is required for a paid trial")
 	case in.LessonMinutes < 30 || in.LessonMinutes > 240 || in.LessonMinutes%15 != 0:
 		return invalid("lesson_minutes must be a multiple of 15 between 30 and 240")
+	case *in.CancelHours < 0 || *in.CancelHours > 72:
+		return invalid("cancel_hours must be between 0 and 72")
 	case len(in.Subjects) > maxSubjects:
 		return invalid("at most %d subjects", maxSubjects)
 	}
@@ -233,6 +244,8 @@ func (in *Input) Normalize() error {
 			return invalid("subjects[%d].levels must be distinct values of %s", i, strings.Join(geo.Levels, ", "))
 		case o.PriceKZT < 0 || o.PriceKZT > 1000000:
 			return invalid("subjects[%d].price_kzt must be between 0 and 1000000", i)
+		case o.LessonMinutes != nil && (*o.LessonMinutes < 30 || *o.LessonMinutes > 240 || *o.LessonMinutes%15 != 0):
+			return invalid("subjects[%d].lesson_minutes must be a multiple of 15 between 30 and 240", i)
 		}
 		seen[o.SubjectID] = true
 	}
