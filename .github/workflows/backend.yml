@@ -1,0 +1,71 @@
+name: backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "docs/api.yaml"
+      - ".github/workflows/backend.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - "docs/api.yaml"
+      - ".github/workflows/backend.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: tutorhub
+          POSTGRES_PASSWORD: tutorhub
+          POSTGRES_DB: tutorhub_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tutorhub -d tutorhub_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test (including DB integration tests)
+        env:
+          TEST_DATABASE_URL: postgres://tutorhub:tutorhub@localhost:5432/tutorhub_test?sslmode=disable
+        run: go test -race -count=1 -p 1 ./...
+
+      - name: go build
+        run: go build ./...
+
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Lint docs/api.yaml
+        run: npx --yes @redocly/cli@latest lint docs/api.yaml

@@ -1,0 +1,30 @@
+# Env
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# Go
+backend/bin/
+*.test
+*.out
+coverage.*
+
+# Frontend
+node_modules/
+frontend/dist/
+*.local
+
+# Editors / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+*.log
+
+# Server database backups (deploy/backup.sh)
+backups/
+
+# Local uploads (UPLOAD_DIR)
+backend/data/
+data/

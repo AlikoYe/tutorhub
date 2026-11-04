@@ -1,0 +1,191 @@
+openapi: 3.1.0
+info:
+  title: TutorHub API
+  version: 0.1.0
+  description: |
+    Backend for the TutorHub Telegram Mini App: a catalogue of teachers, tutors and
+    consultants in Kazakhstan (Almaty first).
+
+    ## Auth
+    Every endpoint except `/health` requires `Authorization: tma <initData>` (the raw
+    `Telegram.WebApp.initData` string). When the server runs with `APP_ENV=dev`,
+    `Authorization: dev <telegram_id>` is also accepted.
+
+    ## Conventions
+    - All timestamps are RFC 3339 with an offset, in the app time zone (`Asia/Almaty`).
+    - `date` values (`YYYY-MM-DD`) are calendar dates in the app time zone.
+    - Lists are plain JSON arrays unless stated otherwise.
+    - Errors always use the `Error` schema: `{"error": "<code>", "message": "<text>"}`.
+      Switch on `error`; `message` is for humans and may change.
+
+    ## Error codes
+    | code | HTTP | when |
+    |------|------|------|
+    | `bad_request` | 400 | Malformed JSON, missing or invalid parameters. |
+    | `unauthorized` | 401 | Missing, malformed, expired or badly signed `Authorization` header. |
+    | `forbidden` | 403 | The current user may not do this (e.g. admin endpoints). |
+    | `not_found` | 404 | The resource does not exist or is not visible to the current user. Unknown routes. |
+    | `method_not_allowed` | 405 | Wrong HTTP method for an existing path. |
+    | `internal` | 500 | Unexpected server error. |
+    | `unavailable` | 503 | `/health`: the database is unreachable. |
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+
+servers:
+  - url: /api
+
+security:
+  - telegramInitData: []
+
+tags:
+  - name: system
+    description: Health check and the current user.
+  - name: catalogue
+    description: Subjects and the specialist catalogue.
+
+paths:
+  /health:
+    get:
+      tags: [system]
+      operationId: getHealth
+      summary: Liveness and database check
+      security: []
+      responses:
+        "200":
+          description: The API and the database are up.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                additionalProperties: false
+                properties:
+                  status: { type: string, const: ok }
+        "503": { $ref: "#/components/responses/Unavailable" }
+
+  /me:
+    get:
+      tags: [system]
+      operationId: getMe
+      summary: The current user
+      responses:
+        "200":
+          description: The authenticated user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /subjects:
+    get:
+      tags: [catalogue]
+      operationId: listSubjects
+      summary: The subject taxonomy
+      description: Every subject, ordered by category and position. Names come in ru, kk and en.
+      responses:
+        "200":
+          description: All subjects.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Subject" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+components:
+  securitySchemes:
+    telegramInitData:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: |
+        `tma <initData>` with the raw `Telegram.WebApp.initData` string.
+        Only when the server runs with `APP_ENV=dev`: `dev <telegram_id>`.
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+      example: 1
+
+  responses:
+    BadRequest:
+      description: "`bad_request`"
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: bad_request, message: "invalid JSON body" }
+    Unauthorized:
+      description: "`unauthorized`"
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: unauthorized, message: "missing or malformed Authorization header" }
+    Forbidden:
+      description: "`forbidden`"
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: forbidden, message: "admins only" }
+    NotFound:
+      description: "`not_found`"
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: not_found, message: "resource not found" }
+    Unavailable:
+      description: "`unavailable`"
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: unavailable, message: "database is unreachable" }
+
+  schemas:
+    Error:
+      type: object
+      required: [error, message]
+      additionalProperties: false
+      properties:
+        error:
+          type: string
+          enum:
+            - bad_request
+            - unauthorized
+            - forbidden
+            - not_found
+            - method_not_allowed
+            - internal
+            - unavailable
+        message: { type: string }
+
+    Me:
+      type: object
+      required: [telegram_id, name, username, language_code, role, is_admin, specialist]
+      additionalProperties: false
+      properties:
+        telegram_id: { type: integer, format: int64 }
+        name: { type: string }
+        username: { type: [string, "null"] }
+        language_code: { type: [string, "null"], description: "From Telegram, e.g. ru, kk, en." }
+        role: { type: string, enum: [user, admin] }
+        is_admin: { type: boolean }
+        specialist:
+          description: The user's own specialist profile. Always null until profiles exist (M1).
+          type: "null"
+
+    Subject:
+      type: object
+      required: [id, slug, name_ru, name_kk, name_en, category]
+      additionalProperties: false
+      properties:
+        id: { type: integer, format: int64 }
+        slug: { type: string, example: ent-math }
+        name_ru: { type: string, example: "ЕНТ: математика" }
+        name_kk: { type: string, example: "ҰБТ: математика" }
+        name_en: { type: string, example: "UNT: mathematics" }
+        category:
+          type: string
+          enum: [school, exam, language, it, music, arts, consulting, other]
