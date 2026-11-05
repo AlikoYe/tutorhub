@@ -115,6 +115,19 @@ prod-logs: ## [server] Follow logs of all services (Ctrl+C to stop)
 prod-ps: ## [server] Show container status
 	$(PROD_COMPOSE) ps -a
 
+.PHONY: prod-seed
+prod-seed: ## [server] Load the 8 demo teachers (optional, for a demo): make prod-seed ADMIN=<your telegram id>
+	@if [ "$(origin ADMIN)" != "command line" ]; then echo "usage: make prod-seed ADMIN=<your telegram id>"; exit 1; fi
+	$(PROD_COMPOSE) exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -v admin_id=$(ADMIN) -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"' < backend/seed/dev.sql
+
+.PHONY: prod-unseed
+prod-unseed: ## [server] Hide the demo teachers (users 1001-1008) from the catalogue
+	$(PROD_COMPOSE) exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -c "UPDATE specialists SET status = '"'"'hidden'"'"' WHERE user_id BETWEEN 1001 AND 1008"'
+
+.PHONY: edge-logs
+edge-logs: ## [server] Follow the shared edge proxy logs
+	docker compose -p edge -f /opt/edge/docker-compose.yml logs -f --tail 200 edge
+
 .PHONY: prod-psql
 prod-psql: ## [server] Open psql on the production database
 	$(PROD_COMPOSE) exec postgres sh -c 'psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"'

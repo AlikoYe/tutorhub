@@ -90,7 +90,7 @@ public_check() {
   [[ "$site" == :* ]] && return 0
   step "Public check through the edge proxy: https://$site/api/health"
   # --resolve hits this machine directly, so the check does not depend on external DNS.
-  if status="$(curl -fsS --max-time 10 --resolve "${site}:443:127.0.0.1" "https://${site}/api/health" 2>&1)"; then
+  if status="$(curl -fsS --noproxy '*' --max-time 10 --resolve "${site}:443:127.0.0.1" "https://${site}/api/health" 2>&1)"; then
     echo "OK: $status"
   else
     echo "WARNING: not reachable through the edge yet ($status)."

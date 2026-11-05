@@ -28,4 +28,4 @@ docker compose -p tablebot --env-file .env -f deploy/docker-compose.yml -f deplo
 site="$(grep -E '^SITE_ADDRESS=' .env | tail -n 1 | cut -d= -f2- | tr -d '"'"'"'')"
 step "Check: curl -I https://$site"
 sleep 3
-curl -sSI --max-time 20 --resolve "$site:443:127.0.0.1" "https://$site" | head -n 1 || echo "not answering yet; see: docker compose -p tablebot logs caddy"
+curl -sSI --noproxy '*' --max-time 20 --resolve "$site:443:127.0.0.1" "https://$site" | head -n 1 || echo "not answering yet; see: docker compose -p tablebot logs caddy"

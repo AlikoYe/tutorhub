@@ -83,7 +83,7 @@ step "Validating the Caddy config"
 docker run --rm \
   -v "$EDGE_DIR/Caddyfile:/etc/caddy/Caddyfile:ro" \
   -v "$EDGE_DIR/sites:/etc/caddy/sites:ro" \
-  "$CADDY_IMAGE" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 | tail -n 3
+  "$CADDY_IMAGE" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 | tail -n 1
 echo "config is valid"
 
 compose() { docker compose -p edge -f "$EDGE_DIR/docker-compose.yml" "$@"; }
@@ -118,5 +118,5 @@ done
 for host in $tablebot_host $tutorhub_host; do
   sleep 2
   printf '\n%s: ' "$host"
-  curl -sSI --max-time 20 --resolve "$host:443:127.0.0.1" "https://$host" | head -n 1 || echo "not answering yet (retry in a minute; logs: docker compose -p edge -f $EDGE_DIR/docker-compose.yml logs edge)"
+  curl -sSI --noproxy '*' --max-time 20 --resolve "$host:443:127.0.0.1" "https://$host" | head -n 1 || echo "not answering yet (retry in a minute; logs: docker compose -p edge -f $EDGE_DIR/docker-compose.yml logs edge)"
 done
