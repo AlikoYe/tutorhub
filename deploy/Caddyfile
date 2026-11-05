@@ -1,5 +1,12 @@
-# SITE_ADDRESS defaults to :80 (plain HTTP, local). Set it to your domain,
-# e.g. tutorhub.example.com, and Caddy will obtain a TLS certificate.
+# SITE_ADDRESS defaults to :80 (plain HTTP). In production it is always :80: the shared edge
+# proxy (deploy/edge) terminates TLS and forwards to this container as tutorhub-web:80.
+{
+	servers {
+		# Keep the client IP and X-Forwarded-Proto set by the edge proxy (Docker networks are private).
+		trusted_proxies static private_ranges
+	}
+}
+
 {$SITE_ADDRESS::80} {
 	encode zstd gzip
 

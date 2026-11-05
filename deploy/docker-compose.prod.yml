@@ -2,6 +2,8 @@
 #   docker compose -p tutorhub --env-file .env \
 #     -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml up -d --build
 # deploy/deploy.sh and the prod-* make targets do this for you.
+# Nothing here publishes a port: the shared edge proxy (deploy/edge, project "edge") owns
+# 80/443 and reaches the web container on the external "edge" network as tutorhub-web:80.
 
 x-logging: &logging
   driver: json-file
@@ -34,8 +36,22 @@ services:
       context: ..
       dockerfile: deploy/web.Dockerfile
     image: tutorhub-web:latest
+    ports: !reset []
+    environment:
+      # Plain HTTP behind the edge proxy, whatever .env says.
+      SITE_ADDRESS: ":80"
     volumes: !override
       - caddy_data:/data
       - caddy_config:/config
+    networks:
+      default: {}
+      edge:
+        # Unique on the shared network: TableBot's web container is also called "caddy".
+        aliases:
+          - tutorhub-web
     restart: unless-stopped
     logging: *logging
+
+networks:
+  edge:
+    external: true

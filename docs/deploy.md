@@ -1,278 +1,343 @@
-# Deploying TutorHub
+# Deploying TutorHub (next to TableBot, on the same VM)
 
-This runbook puts TutorHub on **one Ubuntu 24.04 VM** (Azure) with HTTPS, then
-sets up automatic deploys from GitHub. Follow the steps in order. Each step says
-what success looks like. Commands are meant to be copy-pasted.
+TutorHub runs on the **same Azure VM** as TableBot
+(`tablebot-g30.indiasouthcentral.cloudapp.azure.com`). Only one program can own ports
+80/443, so both projects sit behind one shared **edge proxy**:
 
-What runs on the server (all in Docker, started by `deploy/deploy.sh`):
+```
+internet ──80/443──▶ edge (Caddy, project "edge", /opt/edge, gets all HTTPS certificates)
+                       ├─ tablebot host ──▶ tablebot-web:80  (TableBot's web container)
+                       └─ tutorhub host ──▶ tutorhub-web:80  (TutorHub's web container)
+                                             ├─ /api/*, /t/*, /c/*, sitemap ─▶ api:8080
+                                             └─ everything else ─▶ the Vue app
+```
 
-| Service | What it does |
+| Project | Directory | Compose project | Containers |
+|---|---|---|---|
+| Edge proxy | `/opt/edge` | `edge` | `edge` (Caddy, the only one publishing 80/443) |
+| TableBot | `/opt/tablebot` | `tablebot` | `postgres`, `migrate`, `api`, `caddy` (alias `tablebot-web`) |
+| TutorHub | `/opt/tutorhub` | `tutorhub` | `postgres`, `migrate`, `api`, `caddy` (alias `tutorhub-web`) |
+
+The web containers serve plain HTTP on `:80` and join the external Docker network `edge`
+with a unique alias (both services are called `caddy` inside their own projects, so the
+edge always proxies to the aliases). Each project keeps its own Postgres; no database port
+is published. Edge files: `deploy/edge/` in this repo. They are installed to `/opt/edge` by
+`deploy/edge/install.sh`.
+
+Replace these placeholders below:
+
+- `<tutorhub-host>`: TutorHub's domain, e.g. `tutorhub.example.kz` (see step 1)
+- `<your-telegram-id>`: `888659722`
+- `<vm-ip>`: the VM's public IP (Azure portal → VM → Overview → Public IP address)
+
+---
+
+## 1. A domain for TutorHub
+
+The Azure DNS label already belongs to TableBot, so TutorHub needs its own hostname.
+
+**Option A, your own domain (recommended).** At your DNS provider, add an **A record**:
+
+| Type | Name | Value | TTL |
+|---|---|---|---|
+| A | `tutorhub` (or `@` for the bare domain) | `<vm-ip>` | 300 |
+
+Check it on your Mac (it can take a few minutes):
+
+```bash
+dig +short <tutorhub-host>
+```
+
+✅ It prints `<vm-ip>`.
+
+**Option B, no domain yet.** Use `tutorhub.<vm-ip-with-dashes>.sslip.io`, for example
+`tutorhub.20-1-2-3.sslip.io`. It already resolves to that IP, and Let's Encrypt issues
+certificates for it. Switch to a real domain later by re-running step 4 with the new host
+and updating `.env` (step 3).
+
+## 2. The production bot (BotFather)
+
+Keep your laptop's dev bot. Create a **second** bot for production (one token, one place:
+two programs polling one token steal each other's updates).
+
+1. In Telegram, open [@BotFather] and send `/newbot`. Name it `TutorHub`, username e.g. `tutorhub_kz_bot`.
+2. Copy the token. It goes into `BOT_TOKEN` in step 3. Never paste it anywhere else.
+3. Send `/setdescription` and `/setabouttext` with a short Russian description (optional).
+
+The **menu button** ("TutorHub", which opens the Mini App) is set by the API itself on every
+start from `WEBAPP_URL` (step 7 shows how to check it). No BotFather step is needed for it.
+
+[@BotFather]: https://t.me/BotFather
+
+## 3. Server setup and config
+
+SSH into the VM:
+
+```bash
+ssh azureuser@tablebot-g30.indiasouthcentral.cloudapp.azure.com
+```
+
+Run the TutorHub setup. It installs only what is missing (Docker, ufw rules and swap already
+exist because of TableBot), clones the app to `/opt/tutorhub`, creates the `edge` network
+and a nightly backup at 03:30. It never touches `/opt/tablebot`.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AlikoYe/tutorhub/main/deploy/server-setup.sh -o tutorhub-setup.sh
+```
+
+```bash
+sudo bash tutorhub-setup.sh
+```
+
+✅ It ends with `Server setup finished. /opt/tablebot was not touched.`
+If it says you were added to the docker group, log out (`exit`) and SSH in again.
+
+Create the config:
+
+```bash
+cd /opt/tutorhub && cp deploy/.env.production.example .env && chmod 600 .env && nano .env
+```
+
+Fill in at least:
+
+| Variable | Value |
 |---|---|
-| `postgres` | The database. Not reachable from outside the VM. |
-| `migrate` | Applies database migrations, then exits. |
-| `api` | Go backend + Telegram bot (long polling) + background worker. |
-| `caddy` | Serves the Vue app, proxies `/api`, gets the HTTPS certificate automatically. |
+| `POSTGRES_PASSWORD` | output of `openssl rand -hex 24` |
+| `BOT_TOKEN` | the token from step 2 |
+| `BOT_USERNAME` | the bot's username without `@` |
+| `WEBAPP_URL` | `https://<tutorhub-host>` |
+| `SITE_URL` | `https://<tutorhub-host>` |
+| `SITE_ADDRESS` | `<tutorhub-host>` (no `https://`) |
+| `ADMIN_TELEGRAM_IDS` | `888659722` |
 
-Throughout this guide, replace:
+✅ `grep CHANGE_ME .env` prints nothing.
 
-- `<host>` with your VM's DNS name, e.g. `tutorhub-vm.westeurope.cloudapp.azure.com`
-- `<your-telegram-id>` with your numeric Telegram id (send any message to
-  [@userinfobot](https://t.me/userinfobot) to get it)
+> Until `main` contains the deploy files (this PR merged), use the branch:
+> `cd /opt/tutorhub && git fetch origin m6-deploy && git checkout m6-deploy`.
+> Merge to `main` before step 7, because automatic deploys reset to `origin/main`.
 
-## Before you start
+## 4. CUTOVER: move 80/443 from TableBot to the edge
 
-- **The VM exists**: Ubuntu 24.04, user `azureuser`, you can SSH in with your key.
-- **Azure networking**: in the VM's *Networking* page, inbound rules allow
-  **22, 80 and 443** (TCP; also 443 UDP if you can). Let's Encrypt needs 80 and 443.
-- **DNS name**: in the VM's public IP resource → *Configuration* → *DNS name label*,
-  set a label (e.g. `tutorhub-vm`). That gives you `<host>`.
-- **A production bot**: create a *second* bot in [@BotFather](https://t.me/BotFather)
-  for production and keep its token handy. Your laptop keeps using the dev bot (see
-  "One token, one place" below).
+Do these steps in one sitting. TableBot is **offline between b) and c)**, normally under a minute.
 
-> ### One token, one place
-> Telegram lets **only one program at a time** read a bot's updates (long polling).
-> If the same `BOT_TOKEN` runs on your laptop and on the server, they steal updates
-> from each other and the bot seems to ignore buttons and `/start` at random.
-> **Laptop = dev bot token, server = prod bot token. Never mix them.**
-
-## 1. SSH into the server
-
-On your Mac:
+### a) Prepare the edge without starting it
 
 ```bash
-ssh azureuser@<host>
+TABLEBOT_HOST=tablebot-g30.indiasouthcentral.cloudapp.azure.com TUTORHUB_HOST=<tutorhub-host> bash /opt/tutorhub/deploy/edge/install.sh --no-start
 ```
 
-✅ You see a prompt like `azureuser@tutorhub-vm:~$`.
+✅ Expected output (abridged):
 
-## 2. Run the server setup, then log out and back in
+```
+==> Docker network "edge"
+already exists
+==> Stack files in /opt/edge
+copied docker-compose.yml and Caddyfile
+==> Site files in /opt/edge/sites
+tablebot-g30.indiasouthcentral.cloudapp.azure.com -> tablebot-web:80
+<tutorhub-host> -> tutorhub-web:80
+==> Validating the Caddy config
+Valid configuration
+config is valid
+==> Not starting the edge (--no-start). ...
+```
 
-On the server:
+The hosts are saved in `/opt/edge/edge.env`, so later runs need no variables.
+
+### b) Merge the TableBot edge PR
+
+Merge **https://github.com/AlikoYe/TableBot/pull/5** ("Serve TableBot behind the shared edge
+proxy", branch `edge-proxy`) on GitHub. Its deploy workflow runs `deploy.sh` on the server. TableBot's web
+container stops publishing 80/443 and joins the `edge` network as `tablebot-web`.
+**TableBot is unreachable from the internet from now until c).**
+
+Watch the GitHub Actions run (TableBot → Actions → deploy), or on the server:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AlikoYe/TutorHub/main/deploy/server-setup.sh -o server-setup.sh
-sudo bash server-setup.sh
+docker ps --format '{{.Names}}\t{{.Ports}}' | grep tablebot
 ```
 
-This takes a few minutes. It installs Docker, adds a 2 GB swapfile, turns on the
-firewall (SSH, 80, 443), enables automatic security updates, clones the app into
-`/opt/tutorhub`, and installs a nightly database backup (03:00 server time, which is UTC on
-Azure). It is safe to run again if something fails halfway.
+✅ The deploy log ends with `Deploy OK: http://tablebot-web/api/health -> {"status":"ok"}`
+followed by `WARNING: not reachable through the edge proxy yet` (expected: the edge is not
+running yet). `tablebot-caddy-1` shows `80/tcp, 443/tcp...` **without** `0.0.0.0:` (nothing published).
 
-✅ It ends with `==> Server setup finished.` and a list of next steps.
-
-Now log out and back in, so your user can run Docker:
+### c) Start the edge immediately
 
 ```bash
-exit
+bash /opt/tutorhub/deploy/edge/install.sh --copy-certs
 ```
+
+`--copy-certs` copies TableBot's existing certificate into the edge, so no new certificate is
+needed for it.
+
+✅ Expected output ends with:
+
+```
+==> Copying TableBot certificates into edge_data
+copied
+==> Starting the edge
+ Container edge-edge-1  Started
+...
+tablebot-g30.indiasouthcentral.cloudapp.azure.com: HTTP/2 200
+<tutorhub-host>: HTTP/2 502
+```
+
+`502` for TutorHub is expected until step d). Check TableBot from your Mac:
 
 ```bash
-ssh azureuser@<host>
+curl -sI https://tablebot-g30.indiasouthcentral.cloudapp.azure.com | head -1
 ```
+
+✅ `HTTP/2 200`. TableBot is back. If not, see e) right away.
+
+### d) First TutorHub deploy
 
 ```bash
-docker ps
+cd /opt/tutorhub && bash deploy/deploy.sh --no-pull
 ```
-
-✅ `docker ps` prints an empty table (`CONTAINER ID   IMAGE ...`) with no "permission denied".
-
-## 3. Create the production config
-
-On the server:
-
-```bash
-cd /opt/tutorhub
-cp deploy/.env.production.example .env
-openssl rand -hex 24
-```
-
-Copy the random string that `openssl` printed, then edit the file:
-
-```bash
-nano .env
-```
-
-Set:
-
-- `POSTGRES_PASSWORD` = the random string
-- `BOT_TOKEN` = the **production** bot token
-- `WEBAPP_URL` = `https://<host>`
-- `SITE_ADDRESS` = `<host>` (no `https://`, no trailing slash)
-
-Save with `Ctrl+O`, `Enter`, exit with `Ctrl+X`. Then lock the file down:
-
-```bash
-chmod 600 .env
-```
-
-✅ `grep -c CHANGE_ME .env` prints `0`.
-
-## 4. First deploy
-
-```bash
-bash /opt/tutorhub/deploy/deploy.sh
-```
-
-The first run builds the images (3–6 minutes) and Caddy requests the HTTPS certificate.
 
 ✅ It ends with:
 
 ```
-==> Deploy OK: https://<host>/api/health -> {"status":"ok"}
+==> Deploy OK: {"status":"ok"}
+...
+==> Public check through the edge proxy: https://<tutorhub-host>/api/health
+OK: {"status":"ok"}
 ```
 
-followed by a table where `postgres`, `api` and `caddy` are `Up` (`migrate` has exited, which
-is expected). Open `https://<host>` in your browser: the app loads with a valid padlock.
+The first certificate for `<tutorhub-host>` can take a minute. If the public check warns,
+wait and run `curl -sI https://<tutorhub-host> | head -1` again.
 
-If it fails, the script prints the container status and the last log lines of `migrate`,
-`api` and `caddy`. Check the troubleshooting table at the end of this page.
-
-## 5. Make yourself an admin
-
-Put your Telegram id into `.env` and restart the API:
+Optional demo data (8 fake Almaty teachers; hide them later with `make prod-unseed`):
 
 ```bash
-cd /opt/tutorhub
-nano .env          # ADMIN_TELEGRAM_IDS=<your-telegram-id>
-make prod-up
+cd /opt/tutorhub && make prod-seed ADMIN=888659722
 ```
 
-✅ In the app you now see the **Админ** tab.
+✅ Ends with `COMMIT`.
 
-## 6. Try it in Telegram
-
-1. Open your production bot in Telegram and send `/start`.
-2. ✅ The bot answers with a welcome message and an **📱 Open TutorHub** button.
-3. ✅ The menu button next to the message field says **Open TutorHub** (the server sets it
-   from `WEBAPP_URL` on startup; restart Telegram if you still see the old one).
-4. Send `/teach`, fill in a teacher profile and submit it; approve it in the **Админ** tab.
-   ✅ The profile appears in the catalogue.
-
-## 7. Automatic deploys from GitHub
-
-GitHub Actions deploys every push to `main` by SSH-ing into the server and running
-`deploy.sh`. It uses a **separate key** that is only allowed to run the deploy script.
-
-**7a. Create the deploy key on your Mac:**
+Health checks from your Mac:
 
 ```bash
-ssh-keygen -t ed25519 -f ~/.ssh/tutorhub_deploy -N "" -C "github-actions-deploy"
+curl -s https://<tutorhub-host>/api/health
 ```
-
-**7b. Allow it on the server, restricted to the deploy script** (run on your Mac):
 
 ```bash
-echo "restrict,command=\"bash /opt/tutorhub/deploy/deploy.sh\" $(cat ~/.ssh/tutorhub_deploy.pub)" | ssh azureuser@<host> 'cat >> ~/.ssh/authorized_keys'
+curl -sI https://<tutorhub-host>/c/almaty | head -1
 ```
-
-✅ Test it. This should run a full deploy and end with `Deploy OK`:
 
 ```bash
-ssh -i ~/.ssh/tutorhub_deploy azureuser@<host>
+curl -s https://tablebot-g30.indiasouthcentral.cloudapp.azure.com/api/health
 ```
 
-**7c. Get the server's host key** (on your Mac):
+✅ `{"status":"ok"}`, `HTTP/2 200`, `{"status":"ok"}`.
+
+Menu button: open the production bot in Telegram and send `/start`.
+✅ The bot answers with **📱 Открыть TutorHub**, and the button next to the message field
+says **TutorHub** (restart Telegram if you still see the old one). The API sets it on start
+from `WEBAPP_URL`; `make prod-logs` shows `telegram bot started (long polling)`.
+
+Admin: in the app, the **Админ** tab appears for `888659722`.
+
+### e) Rollback if c) fails
+
+One command puts 80/443 back on TableBot's own Caddy, with its old certificate, and stops
+the edge (TutorHub goes offline, TableBot comes back):
 
 ```bash
-ssh-keyscan -t ed25519 <host>
+bash /opt/tutorhub/deploy/edge/rollback-tablebot.sh
 ```
 
-✅ One line starting with `<host> ssh-ed25519 AAAA...`. Copy the whole line.
+✅ It ends with `Check: curl -I https://tablebot-g30...` followed by `HTTP/2 200`.
 
-**7d. Add 4 secrets in GitHub**: open the repository → **Settings** → **Secrets and
-variables** → **Actions** → **New repository secret**, and add:
+The next TableBot deploy (any push to TableBot's `main`) removes the ports again. Fix the
+edge (troubleshooting below), then run c) again; or revert the TableBot PR on GitHub, which
+redeploys TableBot in its old standalone form.
 
-| Name | Value |
+## 5. Automatic deploys from GitHub (TutorHub)
+
+GitHub Actions deploys every push to `main` by SSH-ing in and running `deploy.sh`. TutorHub
+uses its **own** key, which can only run TutorHub's deploy script.
+
+**5a. Create the key on your Mac:**
+
+```bash
+ssh-keygen -t ed25519 -N "" -C "tutorhub-deploy" -f ~/.ssh/tutorhub_deploy
+```
+
+**5b. Allow it on the server, restricted to the deploy script:**
+
+```bash
+echo "restrict,command=\"bash /opt/tutorhub/deploy/deploy.sh\" $(cat ~/.ssh/tutorhub_deploy.pub)" | ssh azureuser@tablebot-g30.indiasouthcentral.cloudapp.azure.com 'cat >> ~/.ssh/authorized_keys'
+```
+
+**5c. Test it (runs a real deploy):**
+
+```bash
+ssh -i ~/.ssh/tutorhub_deploy azureuser@tablebot-g30.indiasouthcentral.cloudapp.azure.com
+```
+
+✅ You see the deploy output ending in `Deploy OK`, then the connection closes.
+
+**5d. Add the repository secrets** (github.com/AlikoYe/tutorhub → Settings → Secrets and
+variables → Actions → New repository secret):
+
+| Secret | Value |
 |---|---|
-| `DEPLOY_HOST` | `<host>` |
+| `DEPLOY_HOST` | `tablebot-g30.indiasouthcentral.cloudapp.azure.com` |
 | `DEPLOY_USER` | `azureuser` |
-| `DEPLOY_SSH_KEY` | the **private** key: run `pbcopy < ~/.ssh/tutorhub_deploy` on your Mac and paste (starts with `-----BEGIN OPENSSH PRIVATE KEY-----`) |
-| `DEPLOY_KNOWN_HOSTS` | the line from step 7c |
+| `DEPLOY_SSH_KEY` | the whole output of `cat ~/.ssh/tutorhub_deploy` |
+| `DEPLOY_KNOWN_HOSTS` | the output of `ssh-keyscan tablebot-g30.indiasouthcentral.cloudapp.azure.com` |
 
-✅ Four secrets listed. Until `DEPLOY_HOST` exists, the workflow skips the deploy with a notice.
+✅ The next push to `main` shows a green **deploy** run under Actions. Without `DEPLOY_HOST`,
+the workflow skips deploying with a notice.
 
-## 8. Merge something and watch it deploy
+## Everyday commands (on the server)
 
-Merge any pull request into `main` (or open **Actions** → **deploy** → **Run workflow**).
-In the **Actions** tab, the `deploy` workflow runs `check` (Go vet + tests, frontend build)
-and then `deploy`.
-
-✅ Both jobs are green, and the `deploy` log ends with `Deploy OK: https://<host>/api/health`.
-A failed deploy shows the container logs right in the job output.
-
-## Everyday commands (on the server, in `/opt/tutorhub`)
-
-| Task | Command |
+| What | Command |
 |---|---|
-| See container status | `make prod-ps` |
-| Follow all logs | `make prod-logs` (Ctrl+C to stop) |
-| Redeploy what is checked out | `make prod-up` |
-| Deploy latest `main` | `bash deploy/deploy.sh` |
-| Database shell | `make prod-psql` |
-| Backup now | `make prod-backup` (files in `/opt/tutorhub/backups/`, newest 7 kept) |
-| Restore a backup | `make prod-restore FILE=backups/tutorhub-YYYYMMDD-HHMMSS.sql.gz` (see below) |
+| TutorHub status | `cd /opt/tutorhub && make prod-ps` |
+| TutorHub logs | `cd /opt/tutorhub && make prod-logs` |
+| Redeploy the current checkout | `cd /opt/tutorhub && make prod-up` |
+| Database shell | `cd /opt/tutorhub && make prod-psql` |
+| Backup now | `cd /opt/tutorhub && make prod-backup` |
+| Restore a backup | `cd /opt/tutorhub && make prod-restore FILE=backups/tutorhub-YYYYMMDD-HHMMSS.sql.gz` |
+| Edge logs | `cd /opt/tutorhub && make edge-logs` |
+| Edge status | `docker compose -p edge -f /opt/edge/docker-compose.yml ps` |
+| Change a host / add a site | re-run step 4a's command with the new host, then `bash /opt/tutorhub/deploy/edge/install.sh` |
+| Who holds 80/443 | `docker ps --format '{{.Names}}\t{{.Ports}}' \| grep -E ':(80\|443)->'` |
 
-For anything else, define this shortcut once per SSH session (works in any shell), then
-use it like `docker compose`:
+Backups: `/opt/tutorhub/backups`, nightly at 03:30 (TableBot's run at 03:00), the newest 7 kept.
+Uploaded photos and documents live in the `tutorhub_uploads` volume, which the database
+backup does not include. Copy it with:
 
 ```bash
-dc() { docker compose -p tutorhub --env-file /opt/tutorhub/.env --project-directory /opt/tutorhub -f /opt/tutorhub/deploy/docker-compose.yml -f /opt/tutorhub/deploy/docker-compose.prod.yml "$@"; }
+docker run --rm -v tutorhub_uploads:/data:ro -v /opt/tutorhub/backups:/out alpine:3 tar czf /out/uploads-$(date +%F).tgz -C /data .
 ```
-
-| Task | Command |
-|---|---|
-| Logs of one service | `dc logs --tail 200 api` (or `caddy`, `postgres`, `migrate`) |
-| Restart one service | `dc restart api` |
-| Stop everything (keeps data) | `dc down` |
 
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Deploy fails, caddy log shows `obtaining certificate` errors / `timeout during connect` | Let's Encrypt cannot reach the VM on 80/443 | Azure *Networking*: inbound **80 and 443** allowed. On the VM: `sudo ufw status` lists 80/tcp and 443/tcp. Wait a minute and run `make prod-up` again. |
-| caddy log: `no such host` / `NXDOMAIN` for your domain | DNS name label missing or `SITE_ADDRESS` has a typo | Check the public IP's *DNS name label*; `SITE_ADDRESS` must be exactly `<host>` (no `https://`, no `/`). `nslookup <host>` from your Mac must show the VM's IP. |
-| caddy log: `too many certificates` / rate limit | Many failed attempts in a short time | Fix the cause above, then wait (Let's Encrypt limits reset within an hour to a week). Don't loop deploys. |
-| Browser shows **502 Bad Gateway** | `api` is not running | `make prod-ps`; `dc logs --tail 200 api migrate`. Common: wrong `POSTGRES_PASSWORD` after the DB was created (see below), or `BOT_TOKEN` empty (api refuses to start outside dev). |
-| api log: `password authentication failed` | `POSTGRES_PASSWORD` changed after the first start | The database keeps the password from its first start. Put the old one back into `.env`. Only if the DB holds nothing you need: `dc down -v` deletes all data, then deploy again. |
-| Bot does not answer `/start` | Wrong token, or the same token runs somewhere else | Check `BOT_TOKEN` is the **prod** bot. Make sure no laptop or other server runs with it. api log line `telegram bot error ... Conflict: terminated by other getUpdates request` confirms a second consumer. Then `make prod-up`. |
-| Menu button does not open the app | `WEBAPP_URL` wrong | Must be `https://<host>`. `make prod-up`, then restart the Telegram app. |
-| A teacher gets no lesson requests in the bot | The teacher never pressed **Start** in the bot | Send `/start` to the bot. api log `telegram send failed ... chat not found` means the user never started the bot. |
-| Deploy says `cannot talk to Docker` | You did not log out/in after setup | `exit`, SSH in again. |
-| `No space left on device` | Old images / logs / backups | `df -h /`; `docker system df`; `docker image prune -af` (keeps running containers); delete old files in `/opt/tutorhub/backups`. Container logs are capped at 30 MB per service. |
-| GitHub deploy: `Host key verification failed` | `DEPLOY_KNOWN_HOSTS` wrong or the VM was recreated | Redo step 7c and update the secret. |
-| GitHub deploy: `Permission denied (publickey)` | `DEPLOY_SSH_KEY` or `authorized_keys` line wrong | Redo 7b and 7d; test with `ssh -i ~/.ssh/tutorhub_deploy azureuser@<host>`. |
+| Edge does not start: `port is already allocated` / `address already in use` | Another Caddy still publishes 80/443 (TableBot before its edge PR is deployed) | `docker ps --format '{{.Names}}\t{{.Ports}}' \| grep -E ':(80\|443)->'`. Deploy the TableBot PR (step 4b), then run 4c again. |
+| `502 Bad Gateway` for a host | Its web container is down or not on the `edge` network | `docker network inspect edge --format '{{range .Containers}}{{.Name}} {{end}}'` must list `tablebot-caddy-1` and `tutorhub-caddy-1`. Redeploy that project (`bash deploy/deploy.sh --no-pull`). |
+| Certificate errors / `obtaining certificate` in edge logs | DNS does not point to the VM yet, or 80/443 are blocked | `dig +short <host>` must print `<vm-ip>`. Azure Networking must allow inbound 80 and 443. `sudo ufw status` must list 80/tcp and 443/tcp. Then `docker compose -p edge -f /opt/edge/docker-compose.yml restart`. |
+| `deploy.sh`: `WARNING: not reachable through the edge proxy yet` | Edge not running, or no site file for this host | `ls /opt/edge/sites`, then run step 4a's command with the host, then `bash /opt/tutorhub/deploy/edge/install.sh`. |
+| `deploy.sh`: `.env still contains CHANGE_ME` / `APP_ENV must be prod` | Config not filled in | Step 3. |
+| Mini App says "Не удалось войти" | Opened outside Telegram, or `BOT_TOKEN` is not the bot whose menu opened the app | Open the app from the production bot. Check `BOT_TOKEN` in `.env`, then `make prod-up`. |
+| Bot ignores `/start` or buttons at random | The same token runs somewhere else too (laptop) | One token, one place: give the laptop the dev bot's token. |
+| A teacher gets no lesson requests in the bot | The teacher never pressed **Start** in the bot | Send `/start` to the bot. `telegram send failed ... chat not found` in the api log means exactly this. |
+| Wrong client IPs in logs | The inner Caddy does not trust the edge | Both inner Caddyfiles have `trusted_proxies static private_ranges`; redeploy that project. |
+| GitHub deploy: `Permission denied (publickey)` | `DEPLOY_SSH_KEY` or the `authorized_keys` line is wrong | Redo 5b and 5d; test with 5c. |
 
-### Roll back to the previous version
-
-On the server:
+### Roll back TutorHub to the previous version
 
 ```bash
-cd /opt/tutorhub
-git log --oneline -5
-git reset --hard HEAD~1
-make prod-up
+cd /opt/tutorhub && git log --oneline -5
 ```
-
-`make prod-up` deploys the checked-out commit without pulling. The next push to `main`
-(or `bash deploy/deploy.sh`) moves you forward again, so also revert the bad commit on GitHub.
-Database migrations are not rolled back automatically.
-
-### Restore a backup
-
-This **replaces** the current database with the backup. It stops the api, loads the dump
-and starts the api again.
 
 ```bash
-cd /opt/tutorhub
-ls -lh backups/
-make prod-backup
-make prod-restore FILE=backups/tutorhub-YYYYMMDD-HHMMSS.sql.gz
+git reset --hard <commit> && bash deploy/deploy.sh --no-pull
 ```
 
-(`make prod-backup` first saves the current state, in case you pick the wrong file.)
-
-✅ It ends with `Restored backups/...` and no `ERROR` lines, and the app shows the restored
-data. If it stops with an error, the api stays stopped: fix the problem and run the restore
-again, or start the api with `dc start api`.
+The next push to `main` deploys `main` again; revert the bad commit on GitHub to keep it away.
