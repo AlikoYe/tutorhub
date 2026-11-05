@@ -184,3 +184,4 @@ After M5: online subscription payments, map view, recurring lessons.
 - [x] M3 — Subscriptions and statistics (PR #4)
 - [x] M4 — Trust (PR #5)
 - [x] M5 — Growth (PR #6)
+- [x] Production deploy behind a shared edge proxy (PR #7)
