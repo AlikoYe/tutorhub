@@ -1,0 +1,39 @@
+# Shared edge proxy for every project on this VM (TableBot, TutorHub, ...).
+# It alone publishes 80/443, gets the TLS certificates and forwards each host to the
+# project's web container on the external "edge" network (aliases tablebot-web, tutorhub-web).
+# Installed to /opt/edge by deploy/edge/install.sh; run from there:
+#   docker compose -p edge -f /opt/edge/docker-compose.yml up -d
+name: edge
+
+services:
+  edge:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # One <host>.caddy file per site, written by install.sh.
+      - ./sites:/etc/caddy/sites:ro
+      - edge_data:/data
+      - edge_config:/config
+    networks:
+      - edge
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  edge:
+    external: true
+
+volumes:
+  # Fixed names so install.sh (--copy-certs) and the docs can refer to them.
+  edge_data:
+    name: edge_data
+  edge_config:
+    name: edge_config

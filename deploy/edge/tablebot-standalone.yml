@@ -1,0 +1,12 @@
+# ROLLBACK ONLY: lets TableBot's own Caddy publish 80/443 and get its own certificate again,
+# as before the edge proxy. Used by rollback-tablebot.sh as an extra -f file:
+#   docker compose -p tablebot --env-file .env -f deploy/docker-compose.yml \
+#     -f deploy/docker-compose.prod.yml -f /opt/tutorhub/deploy/edge/tablebot-standalone.yml up -d caddy
+services:
+  caddy:
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?SITE_ADDRESS must be set in /opt/tablebot/.env}
